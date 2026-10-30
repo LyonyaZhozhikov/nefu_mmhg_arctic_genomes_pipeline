@@ -355,6 +355,9 @@ cmd__autoarchive() {
   # Writes to D: (/mnt/d) can fail with "Cannot allocate memory" while the next sample
   # fills the RAM; rsync continues where it stopped, so simply try again a bit later.
   for try in $(seq 1 "$tries"); do
+    # /mnt/d writes need free contiguous kernel memory: drop the page cache and compact first
+    sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null 2>&1 || true
+    echo 1 | sudo -n tee /proc/sys/vm/compact_memory >/dev/null 2>&1 || true
     # separate process so that set -e really stops at the first failed step (it is off inside "if")
     if bash "$ME" _autoarchive_core "$code"; then
       echo "ARCHIVED" > "$run/STATUS"; return 0
