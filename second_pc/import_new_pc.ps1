@@ -29,6 +29,9 @@ if ((Test-Path "$Src\scout.tar") -and ($distros -notcontains "scout")) {
     if ($LASTEXITCODE -ne 0) { throw "импорт scout не удался" }
 }
 
+Write-Host "== Чистая сборка: убираю прогоны и образцы старого ПК ==" -ForegroundColor Cyan
+wsl.exe -d Ubuntu-24.04 -u root -- bash -c "rm -rf /data/raredisease/runs/* /data/raredisease/samples/*; du -sh /data/raredisease/runs /data/raredisease/samples"
+
 Write-Host "== C:\NGS_pipeline и автозапуск ==" -ForegroundColor Cyan
 robocopy "$Src\NGS_pipeline" C:\NGS_pipeline /E /NFL /NDL /NP | Out-Null
 New-Item -ItemType Directory -Force -Path C:\NGS_pipeline\new_samples | Out-Null
