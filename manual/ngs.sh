@@ -350,7 +350,7 @@ md5list() {
 # Archive: /data -> D:, md5 check of every file, then delete the C: copies (no question).
 cmd__autoarchive() {
   local code=$1 run=$RUNS/$1
-  local try tries=${NGS_ARCHIVE_TRIES:-4}
+  local try tries=${NGS_ARCHIVE_TRIES:-24}   # 24 x 20 min = 8 h: outlasts the RAM-heavy phases of the next sample
   echo "ARCHIVING" > "$run/STATUS"
   # Writes to D: (/mnt/d) can fail with "Cannot allocate memory" while the next sample
   # fills the RAM; rsync continues where it stopped, so simply try again a bit later.
