@@ -355,6 +355,12 @@ cmd__autoarchive() {
   # Writes to D: (/mnt/d) can fail with "Cannot allocate memory" while the next sample
   # fills the RAM; rsync continues where it stopped, so simply try again a bit later.
   for try in $(seq 1 "$tries"); do
+    # wait (up to 2 h) for a light phase of the running sample: bwa-mem2, DeepVariant and genmod
+    # take most of the RAM, CADD/VEP leave plenty
+    local w=0
+    while [ "$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo)" -lt "${NGS_ARCHIVE_MIN_RAM_GB:-24}" ] && [ $w -lt 120 ]; do
+      sleep 60; w=$((w + 1))
+    done
     # /mnt/d writes need free contiguous kernel memory: drop the page cache and compact first
     sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null 2>&1 || true
     echo 1 | sudo -n tee /proc/sys/vm/compact_memory >/dev/null 2>&1 || true
