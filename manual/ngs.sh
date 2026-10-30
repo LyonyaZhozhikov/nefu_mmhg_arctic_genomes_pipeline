@@ -140,6 +140,8 @@ cmd_resume() {
   [ -f "$RUNS/$code/params.yaml" ] || die "прогона $code нет"
   running "$code" && die "$code уже идёт"
   rm -f "$RUNS/$code/STATUS"
+  # a queue sample resumed by hand after its queue has gone: nobody else will archive it
+  queue_running || rm -f "${RUNS:?}/$code/IN_QUEUE"
   start_worker "$code"
 }
 
