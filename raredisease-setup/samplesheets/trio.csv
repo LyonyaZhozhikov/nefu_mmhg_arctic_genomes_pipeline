@@ -1,0 +1,5 @@
+sample,lane,fastq_1,fastq_2,sex,phenotype,paternal_id,maternal_id,case_id
+YAK001_P,HXXXXDSX5_L1,/data/raredisease/fastq/YAK001_P_L1_R1.fastq.gz,/data/raredisease/fastq/YAK001_P_L1_R2.fastq.gz,1,2,YAK001_F,YAK001_M,FAM001
+YAK001_P,HXXXXDSX5_L2,/data/raredisease/fastq/YAK001_P_L2_R1.fastq.gz,/data/raredisease/fastq/YAK001_P_L2_R2.fastq.gz,1,2,YAK001_F,YAK001_M,FAM001
+YAK001_F,HXXXXDSX5_L1,/data/raredisease/fastq/YAK001_F_L1_R1.fastq.gz,/data/raredisease/fastq/YAK001_F_L1_R2.fastq.gz,1,1,0,0,FAM001
+YAK001_M,HXXXXDSX5_L1,/data/raredisease/fastq/YAK001_M_L1_R1.fastq.gz,/data/raredisease/fastq/YAK001_M_L1_R2.fastq.gz,2,1,0,0,FAM001

@@ -1,0 +1,5 @@
+type	path
+ALU	/data/raredisease/references/grch38/grch38_alu.bed
+HERV	/data/raredisease/references/grch38/grch38_herv.bed
+L1	/data/raredisease/references/grch38/grch38_l1.bed
+SVA	/data/raredisease/references/grch38/grch38_sva.bed

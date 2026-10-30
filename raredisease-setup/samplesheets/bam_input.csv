@@ -1,0 +1,2 @@
+sample,bam,bai,sex,phenotype,paternal_id,maternal_id,case_id
+YAK003_P,/data/raredisease/bam/YAK003_P.dedup.bam,/data/raredisease/bam/YAK003_P.dedup.bam.bai,1,2,0,0,FAM003

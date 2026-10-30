@@ -1,0 +1,21 @@
+# no data, results or local state in git
+*.bam
+*.bai
+*.cram
+*.crai
+*.fastq.gz
+*.fq.gz
+*.vcf.gz
+*.tbi
+!raredisease-setup/references/*.bed.gz.tbi
+*.tar
+*.tar.gz
+*.tgz
+work/
+results/
+.nextflow*
+*.log
+*.bak*
+__pycache__/
+new_samples/
+new_results/

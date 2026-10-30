@@ -1,0 +1,42 @@
+# vcfanno config for nf-core/raredisease 3.1.2, GRCh38, Yakut cohort.
+# Based on Clinical-Genomics/reference-files grch38_vcfanno_config_-v0.7-.toml.
+# File names here must match the basenames listed in vcfanno_resources.txt.
+#
+# INFO keys the pipeline itself depends on (do not rename):
+#   GNOMADAF, GNOMADAF_popmax  -> hard filter "GNOMADAF > 0.70 | GNOMADAF_popmax > 0.70" before VEP
+#   CADD                       -> rank model
+#   GNOMAD_MTAF_hom/het, MTAF  -> mitochondrial ranking
+# Keys this lab adds:
+#   YAKUT_AF/YAKUT_AC/YAKUT_AN/YAKUT_AC_Hom (AC_Hom = 2 x homozygous individuals) -> in-house Yakut WGS cohort (scripts/build_yakut_af.sh)
+
+title = "Vcfanno configuration file - GRCh38 Yakut"
+
+[[annotation]]
+file="gnomad.genomes.v4.1.sites.af_only.vcf.gz"
+fields = ["AF", "AF_grpmax", "AC", "nhomalt", "AF_eas"]
+ops=["self", "self", "self", "self", "self"]
+names=["GNOMADAF", "GNOMADAF_popmax", "GNOMADAC", "GNOMAD_nhomalt", "GNOMADAF_eas"]
+
+[[annotation]]
+file="yakut_cohort_af.vcf.gz"
+fields = ["AF", "AC", "AN", "AC_Hom"]
+ops=["self", "self", "self", "self"]
+names=["YAKUT_AF", "YAKUT_AC", "YAKUT_AN", "YAKUT_AC_Hom"]
+
+[[annotation]]
+file="gnomad.genomes.v3.1.sites.chrM.af_only.vcf.gz"
+fields = ["AF_hom", "AF_het", "mitotip_score", "mitotip_trna_prediction"]
+ops=["self", "self", "self", "self"]
+names=["GNOMAD_MTAF_hom", "GNOMAD_MTAF_het", "mitotip_score", "mitotip_trna_prediction"]
+
+# ClinVar is added through VEP --custom (conf/vep_extended.config) because the rank model
+# reads CLINVAR_CLNSIG / CLINVAR_CLNREVSTAT from the CSQ field.
+
+# Optional: flag curated Yakut founder / known pathogenic variants so they are never lost
+# when they are common in the cohort (see README, "Founder variants").
+# [[annotation]]
+# file="yakut_known_pathogenic.vcf.gz"
+# fields=["ID"]
+# ops=["flag"]
+# names=["YAKUT_KNOWN_PATHOGENIC"]
+

@@ -1,0 +1,6 @@
+/data/raredisease/references/grch38/vcfanno/gnomad.genomes.v4.1.sites.af_only.vcf.gz
+/data/raredisease/references/grch38/vcfanno/gnomad.genomes.v4.1.sites.af_only.vcf.gz.tbi
+/data/raredisease/references/grch38/vcfanno/yakut_cohort_af.vcf.gz
+/data/raredisease/references/grch38/vcfanno/yakut_cohort_af.vcf.gz.tbi
+/data/raredisease/references/grch38/vcfanno/gnomad.genomes.v3.1.sites.chrM.af_only.vcf.gz
+/data/raredisease/references/grch38/vcfanno/gnomad.genomes.v3.1.sites.chrM.af_only.vcf.gz.tbi

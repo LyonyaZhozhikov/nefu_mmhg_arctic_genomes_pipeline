@@ -1,0 +1,322 @@
+<title>Пайплайн NGS вручную</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Unbounded:wght@500;700&display=swap">
+<style>
+/* Layout: one reading column of numbered steps, a data-flow strip on top, commands as copyable terminal slips. */
+:root {
+  --bg: #f5f7f8;
+  --paper: #ffffff;
+  --ink: #18242c;
+  --muted: #5a6a74;
+  --line: #d8e0e4;
+  --accent: #0d6e74;      /* teal, like a stained gel band */
+  --accent-soft: #e0f0f0;
+  --term-bg: #15202a;
+  --term-fg: #e6eef2;
+  --term-prompt: #7fd1c6;
+  --warn: #9a5b00;
+  --warn-soft: #fff3df;
+  --danger: #a32c2c;
+  --display: "Unbounded", "Golos Text", system-ui, sans-serif;
+  --body: "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #10171c; --paper: #172128; --ink: #e3eaee; --muted: #93a4ad; --line: #2a3841;
+  --accent: #5cc3bf; --accent-soft: #17312f; --term-bg: #0a1014; --term-fg: #e6eef2; --term-prompt: #7fd1c6;
+  --warn: #f0b45a; --warn-soft: #2e2416; --danger: #f08080; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #10171c; --paper: #172128; --ink: #e3eaee; --muted: #93a4ad; --line: #2a3841;
+  --accent: #5cc3bf; --accent-soft: #17312f; --term-bg: #0a1014; --term-fg: #e6eef2; --term-prompt: #7fd1c6;
+  --warn: #f0b45a; --warn-soft: #2e2416; --danger: #f08080; color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font: 16px/1.6 var(--body); }
+.wrap { max-width: 860px; margin: 0 auto; padding-block: 40px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 40px; }
+h1, h2 { font-family: var(--display); font-weight: 700; text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: clamp(1.7rem, 4vw, 2.4rem); }
+h2 { font-size: 1.25rem; display: flex; gap: 12px; align-items: baseline; }
+h2 .n { font-family: var(--mono); font-size: .9rem; color: var(--accent); font-weight: 600; }
+h3 { font-size: 1.02rem; margin: 0; font-weight: 600; }
+p, ul, ol { margin: 0; max-width: 68ch; }
+ul, ol { padding-left: 1.3em; display: grid; gap: 4px; }
+section { display: grid; gap: 14px; min-width: 0; }
+.lead { color: var(--muted); font-size: 1.05rem; }
+.eyebrow { font: 600 .75rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+code { font-family: var(--mono); font-size: .88em; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+
+/* data flow strip */
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--paper); }
+.flow div { padding: 14px; border-right: 1px solid var(--line); display: grid; gap: 4px; align-content: start; min-width: 0; }
+.flow div:last-child { border-right: 0; }
+.flow b { font-size: .8rem; color: var(--muted); font-weight: 500; }
+.flow code { background: none; padding: 0; font-size: .8rem; color: var(--accent); font-weight: 600; }
+.flow span { font-size: .88rem; }
+@media (max-width: 640px) { .flow { grid-template-columns: 1fr; } .flow div { border-right: 0; border-bottom: 1px solid var(--line); } .flow div:last-child { border-bottom: 0; } }
+
+/* terminal slip */
+.term { background: var(--term-bg); color: var(--term-fg); border-radius: 8px; display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.term pre { margin: 0; padding: 12px 14px; font: 14px/1.55 var(--mono); overflow-x: auto; flex: 1; min-width: 0; white-space: pre; }
+.term pre::before { content: "$ "; color: var(--term-prompt); }
+.term.out pre::before { content: ""; }
+.copy { margin: 8px 8px 0 0; font: 600 12px var(--body); background: transparent; color: var(--term-prompt); border: 1px solid var(--term-prompt); border-radius: 5px; padding: 4px 9px; cursor: pointer; flex: none; }
+.copy:hover { background: var(--term-prompt); color: var(--term-bg); }
+.copy:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.term-label { font-size: .85rem; color: var(--muted); }
+
+.steps { counter-reset: s; display: grid; gap: 18px; list-style: none; padding: 0; }
+.steps > li { counter-increment: s; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 4px 12px; }
+.steps > li::before { content: counter(s); grid-row: span 3; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--paper); font: 600 .85rem/28px var(--mono); text-align: center; }
+.steps > li > * { grid-column: 2; }
+
+.note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 10px 14px; border-radius: 0 6px 6px 0; display: grid; gap: 6px; }
+.note.danger { border-color: var(--danger); }
+.note strong { color: var(--warn); }
+.note.danger strong { color: var(--danger); }
+
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
+table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; background: var(--bg); }
+td code { white-space: nowrap; }
+td.wrap-code code { white-space: normal; }
+
+.pill { display: inline-block; font: 600 .75rem/1 var(--mono); padding: 4px 7px; border-radius: 4px; border: 1px solid currentColor; }
+.ok { color: var(--accent); } .bad { color: var(--danger); } .mid { color: var(--warn); }
+details { border: 1px solid var(--line); border-radius: 8px; background: var(--paper); padding: 12px 16px; }
+details[open] { display: grid; gap: 12px; }
+summary { cursor: pointer; font-weight: 600; }
+footer { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+
+<div class="wrap">
+<header style="display:grid;gap:12px">
+  <div class="eyebrow">nf-core/raredisease 3.1.2 · GRCh38 · лабораторный ПК</div>
+  <h1>Пайплайн NGS вручную</h1>
+  <p class="lead">Как самому запустить анализ генома, найти результаты (SNV, SV/CNV, митохондрии, повторы, QC) и перенести готовый прогон на диск D:. Несколько образцов можно поставить в очередь: они посчитаются по одному и сами уйдут на D:. Всё делается одной командой <code>ngs</code> или двойным щелчком по <code>C:\NGS_pipeline\NGS.bat</code>.</p>
+</header>
+
+<section>
+  <h2>Куда идут данные</h2>
+  <div class="flow">
+    <div><b>1. Вы кладёте</b><code>C:\NGS_pipeline\new_samples\КОД\</code><span>FASTQ образца</span></div>
+    <div><b>2. Пайплайн считает</b><code>/data/raredisease/…</code><span>внутри Ubuntu (WSL), быстрый диск</span></div>
+    <div><b>3. Сверка</b><code>md5</code><span>в конце всё копируется на D: и сверяется по md5</span></div>
+    <div><b>4. Результаты и архив</b><code>D:\data_annotated\дата_КОД_пол\</code><span><code>raw\</code> и <code>processed\</code>, C: очищается сам</span></div>
+  </div>
+  <p>Почему считаем не прямо на C:\: из Ubuntu диск C:\ виден через медленный мост (<code>/mnt/c</code>). Пайплайн создаёт сотни тысяч временных файлов, и на таком мосту прогон шёл бы в разы дольше и мог бы падать. Поэтому FASTQ один раз копируются внутрь Ubuntu (около 10–20 минут на 110 ГБ), там идёт расчёт, а итог сразу уходит на D:. Физически всё это на одном NVMe-диске C:, просто в разных «форматах».</p>
+</section>
+
+<section id="install">
+  <h2><span class="n">00</span>Один раз: установка команды ngs</h2>
+  <p>Откройте <b>Пуск → Ubuntu-24.04</b> (чёрное окно) и вставьте (правый клик = вставить):</p>
+  <div class="term"><pre>bash /mnt/c/NGS_pipeline/Claude_folder/manual/install_ngs.sh</pre><button class="copy" type="button">Копировать</button></div>
+  <p>Скрипт ставит команду <code>ngs</code>, создаёт папки <code>new_samples</code> и <code>new_results</code>, ярлык <code>C:\NGS_pipeline\NGS.bat</code> и шаблон настроек (копия проверенных настроек прогона SAMPLE01: полная аннотация VEP с SpliceAI, dbNSFP, REVEL, ClinVar, CADD). Потом закройте и снова откройте окно Ubuntu.</p>
+</section>
+
+<section id="where">
+  <h2><span class="n">01</span>Где что лежит</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Что</th><th>Путь в Ubuntu</th><th>Что внутри</th></tr></thead>
+    <tbody>
+      <tr><td>Референсы</td><td><code>/data/raredisease/references/grch38/</code></td><td>геном GRCh38 no-alt (<code>GCA_000001405.15_…fna</code>), индекс <code>bwamem2/</code>, <code>vep_cache/</code> (VEP 110), <code>vep_plugin_files/</code> (SpliceAI, dbNSFP 4.9a, REVEL, ClinVar), <code>vcfanno/</code> и <code>gnomad_v4.1_genomes_af.tab.gz</code> (gnomAD 4.1), <code>cadd_annotations/</code> (CADD 1.7), <code>stock/</code> (модели ранжирования)</td></tr>
+      <tr><td>Настройки машины</td><td><code>/home/ngs/raredisease-setup/conf/local.config</code></td><td>30 потоков, 100 ГБ ОЗУ, Docker</td></tr>
+      <tr><td>Настройки VEP</td><td><code>/home/ngs/raredisease-setup/conf/vep_spliceai_cadd.config</code></td><td>плагины SpliceAI, dbNSFP, REVEL, ClinVar</td></tr>
+      <tr><td>Шаблон параметров</td><td><code>/home/ngs/raredisease-setup/params_template.yaml</code></td><td>все пути к референсам; для каждого образца копируется в <code>params.yaml</code></td></tr>
+      <tr><td>Прогоны</td><td><code>/data/raredisease/runs/КОД/</code></td><td><code>samplesheet.csv</code>, <code>params.yaml</code>, <code>run.log</code>, <code>timing.txt</code>, временная <code>work/</code></td></tr>
+      <tr><td>Копия FASTQ</td><td><code>/data/raredisease/samples/КОД/</code></td><td>удаляется при архивации</td></tr>
+      <tr><td>Пайплайн</td><td><code>~/.nextflow/assets/.repos/nf-core/raredisease</code></td><td>скачан, версия 3.1.2; Nextflow 26.10.2</td></tr>
+      <tr><td>Скрипт ngs</td><td><code>/home/ngs/raredisease-setup/scripts/ngs.sh</code></td><td>то, что запускают меню и <code>NGS.bat</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>В Проводнике Windows папки Ubuntu видны по адресу <code>\\wsl$\Ubuntu-24.04\data\raredisease</code>. Смотреть можно, но не перетаскивайте оттуда файлы во время прогона.</p>
+</section>
+
+<section id="run">
+  <h2><span class="n">02</span>Запуск образца</h2>
+  <ol class="steps">
+    <li><h3>Положите FASTQ</h3>
+      <p>Создайте папку с лабораторным кодом (латиница, цифры, <code>_</code> или <code>-</code>, без имён пациентов) и положите туда все FASTQ образца:</p>
+      <div class="term out"><pre>C:\NGS_pipeline\new_samples\SAMPLE01\
+    SAMPLE01_E250144668_L01_UDB-464_1.fq.gz
+    SAMPLE01_E250144668_L01_UDB-464_2.fq.gz
+    ... (все проточные ячейки и дорожки)</pre></div>
+      <p>Подходят имена вида <code>*_1.fq.gz / *_2.fq.gz</code> (MGI) и <code>*_R1*.fastq.gz / *_R2*</code> (Illumina). Лишних файлов в папке быть не должно.</p></li>
+    <li><h3>Откройте меню</h3>
+      <p>Двойной щелчок по <code>C:\NGS_pipeline\NGS.bat</code>, либо в окне Ubuntu наберите <code>ngs</code>. Выберите <b>1</b>, введите код папки, пол (<code>F</code> женский, <code>M</code> мужской, <code>U</code> неизвестен) и нажмите Enter на вопрос «Больной?».</p>
+      <p class="term-label">То же одной командой в окне Ubuntu:</p>
+      <div class="term"><pre>ngs run SAMPLE01 F</pre><button class="copy" type="button">Копировать</button></div></li>
+    <li><h3>Можно закрывать окно</h3>
+      <p>Скрипт проверит место на диске и Docker, скопирует FASTQ, сам составит <code>samplesheet.csv</code> и <code>params.yaml</code> и запустит Nextflow в фоне (в tmux). Окно можно закрыть, прогон продолжится. Нельзя выключать и перезагружать ПК и выполнять <code>wsl --shutdown</code>.</p></li>
+  </ol>
+  <div class="note"><strong>Пол важен.</strong><p>От него зависит, как вызываются варианты на X и Y: у мужчин гаплоидно. Если пол неизвестен, ставьте <code>U</code>; пайплайн сам оценит пол (отчёт <code>ngsbits_samplegender</code> и <code>peddy</code>).</p></div>
+  <div class="note"><strong>Время.</strong><p>Один геном WGS 30–35x идёт около 11 часов (SAMPLE02: 12 ч 33 мин до последних ускорений). Два генома одновременно не запускайте: машина рассчитана на один. Для нескольких образцов есть очередь (раздел 06).</p></div>
+</section>
+
+<section id="watch">
+  <h2><span class="n">03</span>Как следить</h2>
+  <div class="term"><pre>ngs status</pre><button class="copy" type="button">Копировать</button></div>
+  <div class="tbl"><table>
+    <thead><tr><th>Состояние</th><th>Что значит</th><th>Что делать</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill mid">RUNNING</span></td><td>идёт расчёт</td><td>ждать; смотреть ход: <code>ngs log КОД</code> (выход Ctrl+C, прогон не прервётся)</td></tr>
+      <tr><td><span class="pill mid">DONE</span></td><td>расчёт закончен, сейчас начнётся перенос на D:</td><td>ждать</td></tr>
+      <tr><td><span class="pill bad">FAILED</span></td><td>пайплайн упал</td><td><code>ngs log КОД</code>, найти строку ERROR; исправить причину; <code>ngs resume КОД</code></td></tr>
+      <tr><td><span class="pill bad">ПРЕРВАН</span></td><td>прогон был остановлен (перезагрузка, выключение WSL)</td><td><code>ngs resume КОД</code>: продолжит с места остановки, готовые шаги не пересчитываются</td></tr>
+      <tr><td><span class="pill mid">ARCHIVING</span></td><td>копируется на D: и сверяется md5 (около 1–1,5 ч)</td><td>ждать; в очереди следующий образец уже считается</td></tr>
+      <tr><td><span class="pill ok">ARCHIVED</span></td><td>готово: данные на D:, проверены, с C: удалены</td><td>ничего, смотреть результаты в <code>D:\data_annotated\…\processed</code></td></tr>
+      <tr><td><span class="pill bad">ARCHIVE_FAILED</span></td><td>копия на D: не удалась или не совпала по md5, на C: ничего не удалено</td><td>проверить D: (место, подключён ли диск), затем <code>ngs archive КОД</code></td></tr>
+    </tbody>
+  </table></div>
+  <details><summary>Частые причины падения</summary>
+    <ul>
+      <li><b>Docker не запущен</b>: <code>sudo service docker start</code>, затем <code>ngs resume КОД</code>.</li>
+      <li><b>Кончилось место</b>: <code>ngs status</code> покажет свободное место. Заархивируйте старые прогоны.</li>
+      <li><b>Нехватка памяти</b> (exit 137): пайплайн сам повторяет шаг с большей памятью дважды. Если не помогло, пришлите Claude последние 50 строк лога.</li>
+      <li><b>Не нашлась пара FASTQ</b>: проверьте имена <code>_1</code>/<code>_2</code> в папке образца.</li>
+    </ul>
+    <p>Полный отчёт по шагам: <code>processed\pipeline_info\execution_report_*.html</code> в папке образца на D: (открывается в браузере).</p>
+  </details>
+</section>
+
+<section id="results">
+  <h2><span class="n">04</span>Где какие результаты</h2>
+  <p>Всё в <code>D:\data_annotated\дата_КОД_пол\processed\</code>. Главные файлы помечены звёздочкой. <code>case_КОД</code> в именах означает «семья/случай».</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Тип</th><th>Папка и файл</th><th>Чем открыть</th></tr></thead>
+    <tbody>
+      <tr><td>★ SNV и инделы, ранжированные</td><td class="wrap-code"><code>rank_and_filter\case_КОД_snv_ranked_research.vcf.gz</code></td><td>IGV, VCF-просмотрщик, Excel после конвертации; поле <code>RankScore</code> = приоритет</td></tr>
+      <tr><td>★ SV и CNV, ранжированные</td><td class="wrap-code"><code>rank_and_filter\case_КОД_sv_ranked_research.vcf.gz</code></td><td>делеции, дупликации, инверсии, транслокации (Manta, TIDDIT, CNVnator, объединены SVDB)</td></tr>
+      <tr><td>★ Митохондрии</td><td class="wrap-code"><code>rank_and_filter\case_КОД_mt_ranked_research.vcf.gz</code>, <code>call_sv\КОД_mitochondria_deletions.txt</code></td><td>варианты мтДНК с гетероплазмией; крупные делеции мтДНК</td></tr>
+      <tr><td>★ Экспансии повторов</td><td class="wrap-code"><code>repeat_expansions\case_КОД_repeat_expansion_stranger.vcf.gz</code></td><td>ExpansionHunter + Stranger: HTT, FMR1, DMPK, ATXN1/2/3, C9orf72, RFC1 и др.</td></tr>
+      <tr><td>★ Выравнивание (для IGV)</td><td class="wrap-code"><code>alignment\КОД_sorted_md.bam</code> + <code>.bai</code></td><td>IGV: все прочтения генома; там же BAM митохондрий для IGV</td></tr>
+      <tr><td>SMA (SMN1/SMN2)</td><td><code>smncopynumbercaller\</code></td><td>число копий SMN1/SMN2</td></tr>
+      <tr><td>Мобильные элементы</td><td class="wrap-code"><code>call_mobile_elements\case_КОД_mobile_elements.vcf.gz</code></td><td>вставки Alu, L1, SVA, HERV</td></tr>
+      <tr><td>★ Качество (QC)</td><td><code>multiqc\multiqc_report.html</code></td><td>браузер: покрытие, дубликаты, вставки, контаминация</td></tr>
+      <tr><td>Пол и родство</td><td><code>ngsbits_samplegender\</code>, <code>peddy\</code></td><td>проверка пола по данным; для трио — подтверждение родства</td></tr>
+      <tr><td>Покрытие</td><td><code>qc_bam\</code></td><td>графики покрытия по хромосомам (<code>tidditcov_chr*.png</code>), mosdepth</td></tr>
+      <tr><td>gVCF</td><td><code>deepvariant_gvcf\</code></td><td>для будущей якутской базы частот, хранить</td></tr>
+      <tr><td>Аннотация без ранжирования</td><td><code>annotate_snv\</code>, <code>annotate_sv\</code></td><td>промежуточные VCF с полной аннотацией VEP</td></tr>
+      <tr><td>Отчёт о прогоне</td><td><code>pipeline_info\</code>, <code>run.log</code>, <code>timing.txt</code></td><td>время, ресурсы, версии программ</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><strong>Полное выравнивание для IGV сохраняется как BAM.</strong><p>Это стандарт nf-core при запуске с FASTQ, около 45–60 ГБ на геном. Если на D: станет мало места, можно перейти на CRAM: в нём те же прочтения, он примерно вдвое меньше, но в IGV для него нужен референс hg38 (строка <code>save_all_mapped_as_cram: true</code> в шаблоне).</p></div>
+  <p>CNV через GATK gCNV пока выключен: ему нужна обученная модель на 30–50 ваших геномах. Крупные CNV ловят TIDDIT и CNVnator в SV-файле.</p>
+</section>
+
+<section id="archive">
+  <h2><span class="n">05</span>Перенос на D: и очистка C: (сам)</h2>
+  <p>После успешного расчёта скрипт сам, без вопросов:</p>
+  <ol class="steps">
+    <li><h3>Копирует</h3><p>FASTQ в <code>D:\data_annotated\2026-10-23_SAMPLE01_F\raw\</code>, результаты в <code>…\processed\</code> (вместе с <code>params.yaml</code>, <code>samplesheet.csv</code>, логом и <code>timing.txt</code>).</p></li>
+    <li><h3>Сверяет md5</h3><p>Считает md5 каждого файла на C: и на D:. Списки остаются на D: (<code>md5_raw.txt</code>, <code>md5_processed.txt</code>). Если хоть один файл не совпал, на C: ничего не удаляется, статус <span class="pill bad">ARCHIVE_FAILED</span>.</p></li>
+    <li><h3>Удаляет с C:</h3><p>Только если всё совпало: <code>new_samples\КОД</code>, копию FASTQ и временную папку <code>work/</code> в Ubuntu (сотни ГБ). В <code>/data/raredisease/runs/КОД/</code> остаются только мелкие файлы настроек и лог. Статус <span class="pill ok">ARCHIVED</span>.</p></li>
+  </ol>
+  <p>Перенос идёт около 1–1,5 часа: мост между Ubuntu и диском D: даёт 50–100 МБ/с. Журнал переноса: <code>/data/raredisease/runs/queue.log</code>. Дата в имени папки на D: это день запуска прогона, пол берётся из того, что вы ввели при запуске.</p>
+  <p>Вручную перенос нужен только если он не удался (ARCHIVE_FAILED, например D: был отключён или кончилось место). Исправьте причину и повторите (в меню пункт 5):</p>
+  <div class="term"><pre>ngs archive SAMPLE01</pre><button class="copy" type="button">Копировать</button></div>
+  <div class="note danger"><strong>Не удаляйте work/ вручную во время прогона.</strong><p>Пока статус RUNNING или FAILED, в <code>work/</code> лежит всё для продолжения через <code>ngs resume</code>. Если прогон не нужен совсем (ошибочный образец), используйте пункт меню 8 или <code>ngs discard КОД</code>: удалит временные файлы, а исходные FASTQ в <code>new_samples</code> не тронет. Это единственная команда, которая спрашивает YES.</p></div>
+  <p>Один геном занимает на D: около 170–280 ГБ (FASTQ ~90–110 ГБ + результаты с BAM). Скрипт сам проверяет свободное место перед копированием.</p>
+</section>
+
+<section id="queue">
+  <h2><span class="n">06</span>Очередь: несколько образцов подряд</h2>
+  <p>Образцы считаются строго по одному: один геном и так загружает все 32 потока и почти всю память, поэтому параллельный запуск на 126 ГБ почти не ускоряет, а риск падений растёт. Очередь просто убирает простои между образцами и сама переносит готовые на D:.</p>
+  <ol class="steps">
+    <li><h3>Положите FASTQ всех образцов</h3><p>Каждый в свою папку <code>C:\NGS_pipeline\new_samples\КОД\</code>, как для обычного запуска. Подойдёт и папка, уже скопированная в <code>/data/raredisease/samples/КОД/</code>.</p></li>
+    <li><h3>Добавьте образцы в очередь</h3><p>По одной команде на образец, в нужном порядке (в меню это пункт 10):</p>
+      <div class="term"><pre>ngs queue add SAMPLE05 F
+ngs queue add SAMPLE06 M
+ngs queue add SAMPLE07 U</pre><button class="copy" type="button">Копировать</button></div></li>
+    <li><h3>Запустите очередь</h3><p>Команда подключит D: (может спросить пароль Linux) и уйдёт в фон. Окно можно закрыть (в меню это пункт 11).</p>
+      <div class="term"><pre>ngs queue start</pre><button class="copy" type="button">Копировать</button></div></li>
+  </ol>
+  <p>Что делает очередь с каждым образцом:</p>
+  <ul>
+    <li>Ждёт, пока закончится любой уже идущий прогон (в том числе запущенный вручную), и проверяет место на <code>/data</code>.</li>
+    <li>Запускает образец так же, как <code>ngs run</code>. Если он упал, один раз пробует продолжить (<code>resume</code>). Если снова неудача, оставляет его на C: для разбора (<code>ngs log КОД</code>) и переходит к следующему.</li>
+    <li>Готовый образец копирует на <code>D:\data_annotated\дата_КОД_пол\{raw,processed}</code> и сверяет md5 каждого файла на C: и на D:. Списки md5 сохраняются там же (<code>md5_raw.txt</code>, <code>md5_processed.txt</code>). Копирование идёт параллельно со счётом следующего образца, процессор оно почти не занимает.</li>
+    <li>Только если все md5 совпали, удаляет данные образца с C:, как и при обычном запуске (раздел 05).</li>
+  </ul>
+  <div class="term"><pre>ngs queue</pre><button class="copy" type="button">Копировать</button></div>
+  <p>Показывает, работает ли очередь, кто ждёт и последние события. Полный журнал: <code>/data/raredisease/runs/queue.log</code>.</p>
+  <div class="note"><strong>Сколько это занимает.</strong><p>Около 11 часов на геном плюс несколько минут между образцами: три образца примерно за 33–34 часа. Место на <code>/data</code> освобождается после архивации каждого образца, поэтому длина очереди не ограничена.</p></div>
+  <div class="note danger"><strong>Пока очередь работает, не выключайте ПК и не делайте wsl --shutdown.</strong><p>Если всё же прервалось: <code>ngs status</code>, затем <code>ngs resume КОД</code> для прерванного образца и снова <code>ngs queue start</code> для остальных.</p></div>
+</section>
+
+<section id="cmds">
+  <h2><span class="n">07</span>Все команды</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Команда</th><th>Что делает</th></tr></thead>
+    <tbody>
+      <tr><td><code>ngs</code></td><td>меню (то же, что NGS.bat)</td></tr>
+      <tr><td><code>ngs run КОД F|M|U</code></td><td>запустить образец из <code>new_samples</code>, в конце он сам уйдёт на D:; для здорового родственника добавьте в конце <code>1</code></td></tr>
+      <tr><td><code>ngs status</code></td><td>состояние всех прогонов и свободное место</td></tr>
+      <tr><td><code>ngs log КОД</code></td><td>лог в реальном времени, выход Ctrl+C</td></tr>
+      <tr><td><code>ngs stop КОД</code></td><td>остановить (потом можно продолжить)</td></tr>
+      <tr><td><code>ngs resume КОД</code></td><td>продолжить упавший или остановленный прогон</td></tr>
+      <tr><td><code>ngs archive КОД</code></td><td>повторить перенос на D: (md5) и очистку C:, если сам не удался</td></tr>
+      <tr><td><code>ngs discard КОД</code></td><td>удалить временные файлы ненужного прогона</td></tr>
+      <tr><td><code>ngs check</code></td><td>проверить Docker, Nextflow, референсы, место</td></tr>
+      <tr><td><code>ngs queue add КОД F|M|U</code></td><td>поставить образец в очередь (для здорового в конце <code>1</code>)</td></tr>
+      <tr><td><code>ngs queue start</code></td><td>запустить очередь в фоне</td></tr>
+      <tr><td><code>ngs queue</code></td><td>показать очередь и последние события</td></tr>
+      <tr><td><code>ngs queue remove КОД</code></td><td>убрать ещё не начатый образец из очереди</td></tr>
+      <tr><td><code>ngs queue stop</code></td><td>остановить очередь после текущего образца</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="trio">
+  <h2><span class="n">08</span>Трио и семьи</h2>
+  <p>Положите FASTQ всех членов семьи в одну папку (например <code>new_samples\FAM012\</code>) и рядом свой <code>samplesheet.csv</code>. В колонках FASTQ пишите только имена файлов, скрипт сам подставит пути. Пол: 1 мужской, 2 женский, 0 неизвестен. Фенотип: 2 больной, 1 здоровый. Родители указываются кодами в <code>paternal_id</code>/<code>maternal_id</code>, у всех один <code>case_id</code>.</p>
+  <div class="term out"><pre>sample,lane,fastq_1,fastq_2,sex,phenotype,paternal_id,maternal_id,case_id
+P012,L01,P012_L01_1.fq.gz,P012_L01_2.fq.gz,2,2,F012,M012,case_FAM012
+F012,L01,F012_L01_1.fq.gz,F012_L01_2.fq.gz,1,1,0,0,case_FAM012
+M012,L01,M012_L01_1.fq.gz,M012_L01_2.fq.gz,2,1,0,0,case_FAM012</pre></div>
+  <p>Запуск: <code>ngs run FAM012 U</code> (буква пола здесь нужна только для имени папки на D:; пол каждого берётся из таблицы). Для трио считаются модели наследования: de novo, компаунд-гетерозиготы, рецессивные гомозиготы. Трио идёт примерно втрое дольше одного генома.</p>
+</section>
+
+<section id="manual">
+  <h2><span class="n">09</span>Что происходит под капотом</h2>
+  <details><summary>Ручной запуск без скрипта ngs</summary>
+    <p>Скрипт делает ровно это. Можно повторить руками в окне Ubuntu:</p>
+    <div class="term"><pre>mkdir -p /data/raredisease/runs/КОД && cd /data/raredisease/runs/КОД
+# 1) samplesheet.csv: одна строка на пару FASTQ (формат см. раздел 07, пути полные)
+# 2) params.yaml: копия шаблона, поменять две строки input: и outdir:
+cp /home/ngs/raredisease-setup/params_template.yaml params.yaml
+nano params.yaml
+# 3) запуск в tmux, чтобы пережил закрытие окна
+tmux new -s run_КОД
+nextflow run nf-core/raredisease -r 3.1.2 -profile docker \
+  -c /home/ngs/raredisease-setup/conf/local.config \
+  -c /home/ngs/raredisease-setup/conf/vep_spliceai_cadd.config \
+  -params-file params.yaml -resume -ansi-log false 2>&1 | tee -a run.log</pre><button class="copy" type="button">Копировать</button></div>
+    <p>Выйти из tmux, не останавливая прогон: <b>Ctrl+B</b>, затем <b>D</b>. Вернуться: <code>tmux attach -t run_КОД</code>. Список: <code>tmux ls</code>.</p>
+  </details>
+  <details><summary>Настройки, которые нельзя менять без Claude</summary>
+    <ul>
+      <li>Модели ранжирования сейчас стандартные nf-core (без якутской базы частот): их рано менять, пока нет когорты.</li>
+      <li>Лимиты 30 потоков / 100 ГБ ОЗУ в <code>local.config</code> подобраны под этот ПК и WSL (116 ГБ).</li>
+      <li><code>vep_spliceai_cadd.config</code> и <code>vep_files_spliceai_cadd.csv</code> работают только вместе.</li>
+    </ul>
+  </details>
+</section>
+
+<footer>Собрано 23.10.2026, очередь добавлена 29.10.2026, по фактическим настройкам лабораторного ПК (Ubuntu-24.04 в WSL2, пользователь ngs, Nextflow 26.10.2, nf-core/raredisease 3.1.2). Копия этой страницы: <code>C:\NGS_pipeline\Claude_folder\manual\ngs_guide.html</code>.</footer>
+</div>
+
+<script>
+document.querySelectorAll('.copy').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var pre = b.parentElement.querySelector('pre');
+    var text = pre.innerText;
+    var done = function () { b.textContent = 'Скопировано'; setTimeout(function () { b.textContent = 'Копировать'; }, 1500); };
+    var fallback = function () { var r = document.createRange(); r.selectNodeContents(pre); var s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = 'Ctrl+C'; };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+  });
+});
+</script>

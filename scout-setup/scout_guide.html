@@ -1,0 +1,290 @@
+<title>Scout в лаборатории</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Unbounded:wght@500;700&display=swap">
+<style>
+/* Layout: same reading column as the ngs guide; a data-flow strip on top, numbered sections in the order an interpreter works, commands as copyable terminal slips. */
+:root {
+  --bg: #f5f7f8;
+  --paper: #ffffff;
+  --ink: #18242c;
+  --muted: #5a6a74;
+  --line: #d8e0e4;
+  --accent: #0d6e74;
+  --accent-soft: #e0f0f0;
+  --term-bg: #15202a;
+  --term-fg: #e6eef2;
+  --term-prompt: #7fd1c6;
+  --warn: #9a5b00;
+  --warn-soft: #fff3df;
+  --danger: #a32c2c;
+  --display: "Unbounded", "Golos Text", system-ui, sans-serif;
+  --body: "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #10171c; --paper: #172128; --ink: #e3eaee; --muted: #93a4ad; --line: #2a3841;
+  --accent: #5cc3bf; --accent-soft: #17312f; --term-bg: #0a1014; --term-fg: #e6eef2; --term-prompt: #7fd1c6;
+  --warn: #f0b45a; --warn-soft: #2e2416; --danger: #f08080; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #10171c; --paper: #172128; --ink: #e3eaee; --muted: #93a4ad; --line: #2a3841;
+  --accent: #5cc3bf; --accent-soft: #17312f; --term-bg: #0a1014; --term-fg: #e6eef2; --term-prompt: #7fd1c6;
+  --warn: #f0b45a; --warn-soft: #2e2416; --danger: #f08080; color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font: 16px/1.6 var(--body); }
+.wrap { max-width: 860px; margin: 0 auto; padding-block: 40px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 40px; }
+h1, h2 { font-family: var(--display); font-weight: 700; text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: clamp(1.7rem, 4vw, 2.4rem); }
+h2 { font-size: 1.25rem; display: flex; gap: 12px; align-items: baseline; }
+h2 .n { font-family: var(--mono); font-size: .9rem; color: var(--accent); font-weight: 600; }
+h3 { font-size: 1.02rem; margin: 0; font-weight: 600; }
+p, ul, ol { margin: 0; max-width: 68ch; }
+ul, ol { padding-left: 1.3em; display: grid; gap: 4px; }
+section { display: grid; gap: 14px; min-width: 0; }
+.lead { color: var(--muted); font-size: 1.05rem; }
+.eyebrow { font: 600 .75rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+code { font-family: var(--mono); font-size: .88em; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--paper); }
+.flow div { padding: 14px; border-right: 1px solid var(--line); display: grid; gap: 4px; align-content: start; min-width: 0; }
+.flow div:last-child { border-right: 0; }
+.flow b { font-size: .8rem; color: var(--muted); font-weight: 500; }
+.flow code { background: none; padding: 0; font-size: .8rem; color: var(--accent); font-weight: 600; }
+.flow span { font-size: .88rem; }
+@media (max-width: 640px) { .flow { grid-template-columns: 1fr; } .flow div { border-right: 0; border-bottom: 1px solid var(--line); } .flow div:last-child { border-bottom: 0; } }
+
+.term { background: var(--term-bg); color: var(--term-fg); border-radius: 8px; display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.term pre { margin: 0; padding: 12px 14px; font: 14px/1.55 var(--mono); overflow-x: auto; flex: 1; min-width: 0; white-space: pre; }
+.term pre::before { content: "> "; color: var(--term-prompt); }
+.term.out pre::before { content: ""; }
+.copy { margin: 8px 8px 0 0; font: 600 12px var(--body); background: transparent; color: var(--term-prompt); border: 1px solid var(--term-prompt); border-radius: 5px; padding: 4px 9px; cursor: pointer; flex: none; }
+.copy:hover { background: var(--term-prompt); color: var(--term-bg); }
+.copy:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.term-label { font-size: .85rem; color: var(--muted); }
+
+.steps { counter-reset: s; display: grid; gap: 18px; list-style: none; padding: 0; }
+.steps > li { counter-increment: s; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 4px 12px; }
+.steps > li::before { content: counter(s); grid-row: span 4; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--paper); font: 600 .85rem/28px var(--mono); text-align: center; }
+.steps > li > * { grid-column: 2; }
+
+.note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 10px 14px; border-radius: 0 6px 6px 0; display: grid; gap: 6px; }
+.note.danger { border-color: var(--danger); }
+.note strong { color: var(--warn); }
+.note.danger strong { color: var(--danger); }
+
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
+table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; background: var(--bg); }
+td code { white-space: nowrap; }
+td.wrap-code code { white-space: normal; }
+
+.pill { display: inline-block; font: 600 .75rem/1 var(--mono); padding: 4px 7px; border-radius: 4px; border: 1px solid currentColor; }
+.ok { color: var(--accent); } .bad { color: var(--danger); } .mid { color: var(--warn); }
+details { border: 1px solid var(--line); border-radius: 8px; background: var(--paper); padding: 12px 16px; }
+details[open] { display: grid; gap: 12px; }
+summary { cursor: pointer; font-weight: 600; }
+footer { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+
+<div class="wrap">
+<header style="display:grid;gap:12px">
+  <div class="eyebrow">Scout 4.115.2 · институт nefu_mmhg_arcgen · лабораторный ПК</div>
+  <h1>Scout в лаборатории</h1>
+  <p class="lead">Как загрузить готовый прогон nf-core/raredisease в Scout и разбирать его в браузере: SNV, SV/CNV, повторы, митохондрии, SMN, IGV, классификация ACMG и комментарии. Пайплайн при этом не меняется: Scout только читает архив на D:.</p>
+</header>
+
+<section>
+  <h2>Куда идут данные</h2>
+  <div class="flow">
+    <div><b>1. Прогон в архиве</b><code>D:\data_annotated\дата_КОД_пол\</code><span>после <code>ngs archive</code></span></div>
+    <div><b>2. Загрузка</b><code>SCOUT.bat load папка</code><span>варианты читаются в базу Scout</span></div>
+    <div><b>3. База</b><code>D:\scout\wsl\</code><span>отдельный Linux «scout» с MongoDB</span></div>
+    <div><b>4. Просмотр</b><code>http://localhost:8000</code><span>в браузере на этом ПК</span></div>
+  </div>
+  <p>Scout работает в своём Linux «scout», диск которого лежит на D:. Ubuntu пайплайна на C: он не трогает, а MongoDB ограничена 4 ГБ памяти, поэтому Scout можно держать открытым во время прогона. VCF и BAM не копируются: в базу попадают отобранные варианты, а BAM для IGV Scout читает прямо из папки на D:.</p>
+</section>
+
+<section id="open">
+  <h2><span class="n">01</span>Открыть Scout</h2>
+  <ol class="steps">
+    <li><h3>Запустите ярлык</h3>
+      <p>Двойной щелчок по <code>C:\NGS_pipeline\Claude_folder\scout-setup\SCOUT.bat</code> или адрес <code>http://localhost:8000</code> в браузере.</p></li>
+    <li><h3>Войдите</h3>
+      <p>Введите адрес <code>admin@arcgen.local</code> и нажмите вход. Пароля нет, поэтому Scout открыт только на этом ПК и не виден из сети.</p></li>
+    <li><h3>Выберите кейс</h3>
+      <p>Институт <code>nefu_mmhg_arcgen</code> → список кейсов. Кейс называется по лабораторному коду, например <code>SAMPLE01</code> (внутренний ID <code>case_SAMPLE01</code>).</p></li>
+  </ol>
+  <div class="note"><strong>Нужен интернет в браузере.</strong><p>Оформление и скрипты страницы Scout (и сам просмотрщик igv.js) подгружает с публичных CDN (jsdelivr, jquery). Референс hg38 и дорожки IGV (гены RefSeq, MANE, ClinVar) лежат локально в «scout» после <code>scripts/setup_igv_local.sh</code>. Данные пациентов и файлы OMIM остаются на ПК.</p></div>
+</section>
+
+<section id="load">
+  <h2><span class="n">02</span>Загрузить прогон</h2>
+  <p>В PowerShell или в окне «Выполнить» укажите имя папки прогона из <code>D:\data_annotated</code>:</p>
+  <div class="term"><pre>C:\NGS_pipeline\Claude_folder\scout-setup\SCOUT.bat load 2026-10-23_SAMPLE01_F</pre><button class="copy" type="button">Копировать</button></div>
+  <ul>
+    <li>Геном WGS загружается около 35 минут. Первые 3–5 минут уходят на чтение всего VCF (около 3 млн вариантов), потом идёт полоска с оставшимся временем. Окно не закрывайте.</li>
+    <li>В базу попадают варианты с <b>RankScore выше 5</b>, все митохондриальные варианты, SV и STR. Остальное доступно как research-набор (см. ниже).</li>
+    <li>В конце скрипт пишет адрес кейса: <code>http://localhost:8000/nefu_mmhg_arcgen/case_КОД</code>.</li>
+    <li>Повторная загрузка того же прогона обновляет кейс. Классификации, комментарии и отметки сохраняются.</li>
+  </ul>
+  <p class="term-label">Полный набор вариантов во всех генах (дольше, по запросу):</p>
+  <div class="term"><pre>C:\NGS_pipeline\Claude_folder\scout-setup\SCOUT.bat research 2026-10-23_SAMPLE01_F</pre><button class="copy" type="button">Копировать</button></div>
+  <details><summary>Что значат предупреждения при загрузке</summary>
+    <div class="tbl"><table>
+      <thead><tr><th>Строка в выводе</th><th>Что значит</th></tr></thead>
+      <tbody>
+        <tr><td class="wrap-code"><code>клинического набора SNV нет</code></td><td>пайплайн не делал отдельный файл по генам OMIM, поэтому берётся research-файл с порогом RankScore &gt; 5. Нормально.</td></tr>
+        <tr><td class="wrap-code"><code>The index file is older than the data file</code></td><td>дата .tbi сбилась при копировании в архив. На результат не влияет.</td></tr>
+        <tr><td class="wrap-code"><code>Clinsig value  does not have an internal representation</code></td><td>пустое поле ClinVar в INFO. ClinVar у нас лежит внутри аннотации VEP и показывается. Безвредно.</td></tr>
+        <tr><td class="wrap-code"><code>missing HGNC symbol for: 27913</code></td><td>ген из аннотации VEP 110 переименован или снят в свежем HGNC. Вариант загружается, просто без символа гена.</td></tr>
+        <tr><td class="wrap-code"><code>исправлена ошибка Scout с пустыми значениями SpliceAI</code></td><td>скрипт сам поправил известную ошибку Scout 4.115.2. Появляется один раз после обновления Scout.</td></tr>
+        <tr><td class="wrap-code"><code>нет индекса … .tbi</code></td><td>без индекса Scout молча загрузил бы 0 вариантов, поэтому скрипт останавливается. Сделайте индекс командой из сообщения.</td></tr>
+      </tbody>
+    </table></div>
+  </details>
+</section>
+
+<section id="case">
+  <h2><span class="n">03</span>Страница кейса</h2>
+  <p>Начинайте разбор отсюда: здесь сводка образца и ссылки на все типы вариантов.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Блок</th><th>Что там</th></tr></thead>
+    <tbody>
+      <tr><td>Образцы</td><td>пол по анкете и по данным (peddy), статус больной/здоровый; для трио — проверка родства</td></tr>
+      <tr><td>SMN</td><td>число копий SMN1/SMN2 (SMNCopyNumberCaller), признак СМА</td></tr>
+      <tr><td>Фенотип (HPO)</td><td>сюда вносятся признаки пациента; по ним Scout строит список генов (см. раздел 05)</td></tr>
+      <tr><td>Панели генов</td><td>по умолчанию <code>OMIM-AUTO</code>: все гены с фенотипом в OMIM</td></tr>
+      <tr><td>Хромографы</td><td>картинки покрытия по хромосомам и участков гомозиготности (rhocall) — полезно при близкородственных браках</td></tr>
+      <tr><td>Отчёты</td><td>MultiQC (качество), отчёт о кейсе для печати</td></tr>
+      <tr><td>Статус, назначение</td><td>кто разбирает кейс и на каком он этапе (inactive / active / solved / archived)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="snv">
+  <h2><span class="n">04</span>Разбор SNV и инделов</h2>
+  <ol class="steps">
+    <li><h3>Откройте клинические SNV</h3>
+      <p>Список отсортирован по RankScore: сверху варианты, которые модель ранжирования nf-core считает самыми вероятными. В списке: ген, HGVS, эффект, частоты gnomAD, CADD, модели наследования, ClinVar.</p></li>
+    <li><h3>Сузьте фильтром</h3>
+      <p>Слева фильтры: частота в gnomAD (например &lt; 0,01), функциональный эффект (missense, frameshift, splice), CADD, ClinVar, панель генов или конкретные гены, регион. Кнопка <b>Clinical filter</b> ставит стандартный набор: редкие, белок-изменяющие, в генах панели.</p></li>
+    <li><h3>Откройте вариант</h3>
+      <p>На странице варианта: все транскрипты (MANE отмечен), предсказатели (SIFT, PolyPhen, REVEL, SpliceAI, CADD), консервативность, частоты, ClinVar, болезни OMIM для гена, качество вызова (глубина, доли аллелей).</p></li>
+    <li><h3>Посмотрите прочтения в IGV</h3>
+      <p>Кнопка IGV открывает встроенный просмотрщик прямо в браузере с BAM образца с D:. Проверьте, что вариант не артефакт: достаточно прочтений, обе цепи, не край прочтений.</p></li>
+  </ol>
+  <div class="note"><strong>Порог RankScore &gt; 5.</strong><p>Варианты с меньшим рангом в клинический список не попали. Если подозреваемого гена нет в списке, загрузите research-набор или посмотрите вариант в IGV по координате.</p></div>
+</section>
+
+<section id="hpo">
+  <h2><span class="n">05</span>Фенотип и список генов по HPO</h2>
+  <p>Без фенотипа Scout показывает все гены OMIM. С фенотипом поиск сужается до генов, связанных с признаками пациента.</p>
+  <ol class="steps">
+    <li><h3>Добавьте признаки</h3><p>На странице кейса в блоке Phenotype начните вводить по-английски (например <code>seizures</code>, <code>intellectual disability</code>) и выберите термин HPO. Можно вводить коды <code>HP:0001250</code>.</p></li>
+    <li><h3>Постройте список генов</h3><p>Scout соберёт динамический список генов по HPO. В фильтре SNV/SV выберите <b>HPO gene list</b>, чтобы смотреть только эти гены.</p></li>
+  </ol>
+  <p>Для SAMPLE03 фенотип пока неизвестен, поэтому разбор по HPO для него станет возможен, когда появится описание пациента.</p>
+</section>
+
+<section id="sv">
+  <h2><span class="n">06</span>SV, повторы, митохондрии</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Раздел</th><th>Что смотреть</th></tr></thead>
+    <tbody>
+      <tr><td>Структурные варианты (SV)</td><td>делеции, дупликации, инверсии, транслокации из Manta, TIDDIT и CNVnator. Фильтруйте по размеру, типу, частоте и генам.</td></tr>
+      <tr><td>STR (повторы)</td><td>ExpansionHunter + Stranger: HTT, FMR1, DMPK, ATXN, C9orf72, RFC1 и др. Цветом отмечено норма / пре-мутация / полная мутация. Вызов RFC1 без перекрывающих прочтений ненадёжен.</td></tr>
+      <tr><td>MT (митохондрии)</td><td>все варианты мтДНК с долей гетероплазмии</td></tr>
+      <tr><td>SMN</td><td>на странице кейса, см. раздел 03</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><strong>В SV много артефактов.</strong><p>Крупные «делеции» в центромерах и сегментных дупликациях получают высокий RankScore. Смотрите на покрытие в IGV и на хромографе покрытия, прежде чем доверять CNV.</p></div>
+</section>
+
+<section id="interpret">
+  <h2><span class="n">07</span>Решения по кейсу</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Действие</th><th>Где</th><th>Зачем</th></tr></thead>
+    <tbody>
+      <tr><td>Закрепить вариант</td><td>значок булавки на странице варианта</td><td>список подозреваемых вариантов на странице кейса</td></tr>
+      <tr><td>Классификация ACMG</td><td>кнопка классификации на странице варианта</td><td>отметить критерии (PVS1, PM2, PP3 …), Scout посчитает класс; можно задать класс вручную</td></tr>
+      <tr><td>Комментарий</td><td>страница варианта или кейса</td><td>заметки для коллег; видны при повторной загрузке кейса</td></tr>
+      <tr><td>Причинный вариант</td><td>Mark causative на странице варианта</td><td>кейс получает статус «solved» и ссылку на диагноз</td></tr>
+      <tr><td>Отчёт</td><td>страница кейса → отчёт</td><td>сводка по кейсу с закреплёнными и причинными вариантами для печати в PDF из браузера</td></tr>
+    </tbody>
+  </table></div>
+  <p>Все действия записываются в журнал кейса с датой и пользователем.</p>
+</section>
+
+<section id="cmds">
+  <h2><span class="n">08</span>Все команды</h2>
+  <p>Команды с <code>SCOUT.bat</code> вводятся в PowerShell. Команды с <code>wsl -d scout</code> тоже в PowerShell: они выполняются внутри Linux «scout».</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Команда</th><th>Что делает</th></tr></thead>
+    <tbody>
+      <tr><td><code>SCOUT.bat</code></td><td>открыть Scout в браузере</td></tr>
+      <tr><td><code>SCOUT.bat load ПАПКА</code></td><td>загрузить или обновить прогон из <code>D:\data_annotated</code></td></tr>
+      <tr><td><code>SCOUT.bat research ПАПКА</code></td><td>загрузить все варианты во всех генах</td></tr>
+      <tr><td class="wrap-code"><code>wsl -d scout -u root bash /mnt/c/NGS_pipeline/Claude_folder/scout-setup/scout_load.sh list</code></td><td>список кейсов в базе</td></tr>
+      <tr><td class="wrap-code"><code>wsl -d scout -u root systemctl restart mongod scout-web</code></td><td>перезапустить Scout, если страница не открывается</td></tr>
+      <tr><td class="wrap-code"><code>wsl -d scout -u root journalctl -u scout-web -n 50</code></td><td>последние ошибки веб-сервера (прислать Claude)</td></tr>
+      <tr><td class="wrap-code"><code>wsl -d scout -u root bash /mnt/c/NGS_pipeline/Claude_folder/scout-setup/scripts/setup_igv_local.sh</code></td><td>один раз: скачать референс hg38 и дорожки IGV локально (~3,5 ГБ) и переключить IGV на них. Повторный запуск возвращает локальные дорожки, если их сбросили в настройках профиля</td></tr>
+    </tbody>
+  </table></div>
+  <details><summary>Страница не открывается</summary>
+    <ul>
+      <li><b>После перезагрузки ПК</b> Linux «scout» стартует сам (ярлык <code>scout_keepalive.vbs</code> в автозагрузке Windows). Подождите минуту после входа в Windows.</li>
+      <li><b>Всё ещё нет</b>: выполните команду перезапуска из таблицы, через 10 секунд обновите страницу.</li>
+      <li><b>Ошибка 500</b> на странице: пришлите Claude вывод <code>journalctl</code> из таблицы.</li>
+      <li>Не выполняйте <code>wsl --shutdown</code> во время прогона пайплайна: он остановит и Ubuntu с пайплайном.</li>
+    </ul>
+  </details>
+</section>
+
+<section id="files">
+  <h2><span class="n">09</span>Где что лежит</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Что</th><th>Где</th></tr></thead>
+    <tbody>
+      <tr><td>Linux «scout» (MongoDB, Scout, справочники)</td><td><code>D:\scout\wsl\ext4.vhdx</code></td></tr>
+      <tr><td>Скрипты и это руководство</td><td><code>C:\NGS_pipeline\Claude_folder\scout-setup\</code></td></tr>
+      <tr><td>Настройки загрузки каждого кейса</td><td><code>/opt/scout/cases/ПАПКА.yaml</code> внутри «scout»</td></tr>
+      <tr><td>OMIM (лицензия лаборатории)</td><td>копия из <code>C:\NGS_interpretation_tool_vtopil\carrier_app\OMIM</code>, наружу не уходит</td></tr>
+      <tr><td>Справочники</td><td>HGNC, HPO, gnomAD constraint, Ensembl GRCh37/38, Orphanet — загружены при установке</td></tr>
+    </tbody>
+  </table></div>
+  <details><summary>Служебные скрипты</summary>
+    <ul>
+      <li><code>scripts/rename_institute.sh СТАРЫЙ НОВЫЙ</code> — сменить ID института (кейсы потом загрузить заново).</li>
+      <li><code>scripts/rename_user.sh СТАРЫЙ_АДРЕС НОВЫЙ_АДРЕС</code> — сменить логин.</li>
+      <li><code>setup_db.sh</code> — заново наполнить базу справочниками. <b>Стирает все кейсы</b>, запускать только по совету Claude.</li>
+    </ul>
+  </details>
+</section>
+
+<section id="later">
+  <h2>Что можно добавить потом</h2>
+  <ul>
+    <li><b>loqusdb</b> — локальная база частот: каждый загруженный образец пополняет якутскую частоту, она видна прямо в Scout.</li>
+    <li>Пароли и вход для коллег по локальной сети.</li>
+    <li>Регулярное обновление OMIM, HPO и генов.</li>
+  </ul>
+</section>
+
+<footer>Собрано 28.10.2026 по фактической установке на лабораторном ПК (Scout 4.115.2, MongoDB 8.0, отдельный WSL «scout» на D:). Копия страницы: <code>C:\NGS_pipeline\Claude_folder\scout-setup\scout_guide.html</code>.</footer>
+</div>
+
+<script>
+document.querySelectorAll('.copy').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var pre = b.parentElement.querySelector('pre');
+    var text = pre.innerText;
+    var done = function () { b.textContent = 'Скопировано'; setTimeout(function () { b.textContent = 'Копировать'; }, 1500); };
+    var fallback = function () { var r = document.createRange(); r.selectNodeContents(pre); var s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = 'Ctrl+C'; };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+  });
+});
+</script>

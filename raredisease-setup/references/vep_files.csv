@@ -1,0 +1,5 @@
+vep_files
+/data/raredisease/references/grch38/vep_plugin_files/LoFtool_scores.txt
+/data/raredisease/references/grch38/vep_plugin_files/pLI_values.txt
+/data/raredisease/references/grch38/vep_plugin_files/spliceai_21_scores_raw_snv_-v1.3-.vcf.gz
+/data/raredisease/references/grch38/vep_plugin_files/spliceai_21_scores_raw_snv_-v1.3-.vcf.gz.tbi

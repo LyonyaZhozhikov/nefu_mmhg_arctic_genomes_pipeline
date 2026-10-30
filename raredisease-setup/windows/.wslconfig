@@ -1,0 +1,11 @@
+# Copy to %UserProfile%\.wslconfig, then run `wsl --shutdown` once.
+# WSL2 VM sizing for nf-core/raredisease on Ryzen 9 9950X / 125.6 GB RAM.
+# Without this file WSL2 gets only half the RAM (~63 GB), too little for the bwa-mem2 index.
+[wsl2]
+processors=32
+memory=116GB
+swap=16GB
+# Return freed RAM to Windows gradually instead of holding it
+[experimental]
+autoMemoryReclaim=gradual
+sparseVhd=true

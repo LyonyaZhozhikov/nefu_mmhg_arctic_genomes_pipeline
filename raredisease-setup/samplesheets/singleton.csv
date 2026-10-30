@@ -1,0 +1,2 @@
+sample,lane,fastq_1,fastq_2,sex,phenotype,paternal_id,maternal_id,case_id
+YAK002_P,HXXXXDSX5_L1,/data/raredisease/fastq/YAK002_P_L1_R1.fastq.gz,/data/raredisease/fastq/YAK002_P_L1_R2.fastq.gz,2,2,0,0,FAM002

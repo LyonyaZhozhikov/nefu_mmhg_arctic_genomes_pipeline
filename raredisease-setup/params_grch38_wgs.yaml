@@ -1,0 +1,82 @@
+# nf-core/raredisease 3.1.2 parameters: WGS, GRCh38, local machine.
+# Run with:
+#   nextflow run nf-core/raredisease -r 3.1.2 -profile docker \
+#       -c conf/local.config -params-file params_grch38_wgs.yaml -resume
+#
+# All paths are placeholders under /data/raredisease/references/grch38. Edit REF paths to where you
+# put the files (see README.md, section "Reference files"). Paths must be absolute.
+
+input:  "/data/raredisease/runs/fam001/samplesheet.csv"
+outdir: "/data/raredisease/runs/fam001/results"
+
+# ---------- genome ----------
+genome:            "GRCh38"
+igenomes_ignore:   true
+fasta:             "/data/raredisease/references/grch38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna"
+fai:               "/data/raredisease/references/grch38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.fai"
+sequence_dictionary: "/data/raredisease/references/grch38/GCA_000001405.15_GRCh38_no_alt_analysis_set.dict"
+mito_name:         "chrM"
+intervals_wgs:     "/data/raredisease/references/grch38/grch38_noalt_wgs.interval_list"   # made by scripts/make_interval_lists.sh
+intervals_y:       "/data/raredisease/references/grch38/grch38_noalt_chrY.interval_list"  # made by scripts/make_interval_lists.sh
+par_bed:           "/data/raredisease/references/grch38/grch38_par.bed"                  # PARs; DeepVariant calls chrX/chrY haploid in males
+save_reference:    true   # first run: publish generated bwa-mem2 index etc. Then point `bwamem2:` at it and set false.
+# bwamem2:         "/data/raredisease/references/grch38/bwamem2"
+bwa:               "/data/raredisease/references/grch38/bwa"   # classic bwa index (scripts/make_bwa_index.sh); else rebuilt every run (1 h 10 min)
+
+# ---------- analysis ----------
+analysis_type:     "wgs"
+aligner:           "bwamem2"     # building the bwa-mem2 GRCh38 index needs ~90 GB RAM (28 x genome size); use "bwa" on a 64 GB machine
+variant_caller:    "deepvariant"
+platform:          "illumina"
+scatter_count:     20
+
+# Start with the parts that need no cohort-trained models or lab-specific panels.
+# Turn them on later (see README.md, "What is switched off and why").
+skip_tools:        "gens,germlinecnvcaller,vcf2cytosure"
+skip_subworkflows: "generate_clinical_set,me_annotation"
+
+# ---------- QC ----------
+# verifybamid_svd_bed: "/data/raredisease/references/grch38/verifybamid/1000g.phase3.100k.b38.vcf.gz.dat.bed"
+# verifybamid_svd_mu:  "/data/raredisease/references/grch38/verifybamid/1000g.phase3.100k.b38.vcf.gz.dat.mu"
+# verifybamid_svd_ud:  "/data/raredisease/references/grch38/verifybamid/1000g.phase3.100k.b38.vcf.gz.dat.UD"
+
+# ---------- repeat expansions (ExpansionHunter + Stranger) ----------
+variant_catalog:   "/data/raredisease/references/grch38/variant_catalog_grch38.json"
+
+# ---------- SV calling ----------
+manta_call_regions:     "/data/raredisease/references/grch38/grch38_manta_call_regions_-1.0-.bed.gz"
+manta_call_regions_tbi: "/data/raredisease/references/grch38/grch38_manta_call_regions_-1.0-.bed.gz.tbi"
+
+# ---------- mobile elements ----------
+mobile_element_references: "/data/raredisease/references/grch38/mobile_element_references.tsv"
+
+# ---------- SNV / MT annotation ----------
+vep_cache:          "/data/raredisease/references/grch38/vep_cache"   # must contain homo_sapiens_merged/110_GRCh38 and Plugins/
+vep_cache_version:  110       # the pipeline's VEP is 110.1; use the matching merged cache
+vep_plugin_files:   "/data/raredisease/references/grch38/vep_files.csv"   # vep_files_extended.csv with conf/vep_extended.config
+vcfanno_toml:       "/data/raredisease/references/grch38/vcfanno_config_grch38_yakut.toml"
+vcfanno_resources:  "/data/raredisease/references/grch38/vcfanno_resources.txt"
+run_vcfanno_db_sanity_check: true   # drops empty databases (e.g. a still-empty Yakut AF file) instead of crashing
+gnomad_af:          "/data/raredisease/references/grch38/gnomad_v4.1_genomes_af.tab.gz"   # made by scripts/make_gnomad_af_tab.sh
+gnomad_af_idx:      "/data/raredisease/references/grch38/gnomad_v4.1_genomes_af.tab.gz.tbi"
+cadd_resources:     "/data/raredisease/references/grch38/cadd_annotations"   # CADD 1.7 GRCh38 annotation folder, for indel scoring
+cadd_prescored:     "/data/raredisease/references/grch38/cadd_prescored"     # optional: pre-scored gnomAD indels
+# genmod aborts if any rank-model field is missing from the VCF. Until the Yakut cohort DBs and a local
+# Loqusdb exist, use the *_nocohort models (scripts/prune_rank_model.py drops yakut, lab_db, mtaf);
+# switch back to *_yakut.ini once yakut_cohort_af.vcf.gz / yakut_cohort_svdb.vcf are built.
+score_config_snv:   "/data/raredisease/references/grch38/rank_model_snv_grch38_nocohort.ini"
+score_config_mt:    "/data/raredisease/references/grch38/rank_model_snv_grch38_nocohort.ini"
+variant_consequences_snv: "/data/raredisease/references/grch38/variant_consequences_v2.txt"
+reduced_penetrance: "/data/raredisease/references/grch38/reduced_penetrance_grch38.tsv"
+# vep_filters:      "/data/raredisease/references/grch38/panel_hgnc_ids.txt"   # needed when generate_clinical_set is on
+
+# ---------- SV annotation ----------
+svdb_query_dbs:          "/data/raredisease/references/grch38/svdb_query_dbs.csv"
+score_config_sv:         "/data/raredisease/references/grch38/rank_model_sv_grch38_nocohort.ini"   # drops loqusdb, yakut_sv, clinvar_pathogenic
+variant_consequences_sv: "/data/raredisease/references/grch38/variant_consequences_v2.txt"
+# mobile_element_svdb_annotations: "/data/raredisease/references/grch38/me_svdb_annotations.csv"  # when me_annotation is on
+
+# ---------- CNV (turn on once you have >=30-50 samples sequenced the same way) ----------
+# ploidy_model:        "/data/raredisease/references/grch38/gcnv/ploidy-model"
+# gcnvcaller_model:    "/data/raredisease/references/grch38/gcnv/gcnvmodels.tsv"
+# readcount_intervals: "/data/raredisease/references/grch38/gcnv/readcount.interval_list"

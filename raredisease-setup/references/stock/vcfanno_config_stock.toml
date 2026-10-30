@@ -1,0 +1,26 @@
+title = "Vcfanno configuration file (Clinical-Genomics grch38_vcfanno_config_-v0.7- layout; only locally available databases)"
+
+[[annotation]]
+file="gnomad.genomes.v4.1.sites.af_only.vcf.gz"
+fields = ["AF", "AF_grpmax", "AC", "nhomalt"]
+ops=["self", "self", "self", "self"]
+names=["GNOMADAF", "GNOMADAF_grpmax", "GNOMADAC", "GNOMAD_nhomalt"]
+
+# same field again (via a hard-linked copy) under the name the pipeline pre-VEP filter uses: GNOMADAF_popmax > 0.70
+[[annotation]]
+file="gnomad.genomes.v4.1.sites.af_only.popmax.vcf.gz"  # hard link: vcfanno panics if one file is used in two blocks
+fields = ["AF_grpmax"]
+ops=["self"]
+names=["GNOMADAF_popmax"]
+
+[[annotation]]
+file="gnomad.genomes.v3.1.sites.chrM.af_only.vcf.gz"
+fields = ["AF_hom", "AF_het", "mitotip_score", "mitotip_trna_prediction"]
+ops=["self", "self", "self", "self"]
+names=["GNOMAD_MTAF_hom", "GNOMAD_MTAF_het", "mitotip_score", "mitotip_trna_prediction"]
+
+[[annotation]]
+file="whole_genome_SNVs_chr.tsv.gz"
+names=["CADD"]
+ops=["mean"]
+columns=[6]
