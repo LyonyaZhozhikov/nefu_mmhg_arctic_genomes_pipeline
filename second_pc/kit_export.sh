@@ -3,7 +3,7 @@
 #   bash /mnt/c/NGS_pipeline/Claude_folder/second_pc/kit_export.sh
 # Writes F:\pc2_kit\: refs_<dir>.tar per reference folder (hardlinks kept), docker_images.tar,
 # nextflow_home.tar (pipeline code + plugins), raredisease_setup.tar, wslconfig.txt, keepalive vbs.
-# References are only read, so a running queue is not disturbed; each write waits for a low-RAM
+# References are only read, so a running queue is not disturbed (no idle I/O class: it ran at ~6 MB/s); each write waits for a low-RAM
 # phase of the running sample (writes to /mnt/f fail with "Cannot allocate memory" otherwise).
 set -uo pipefail
 REFS=/data/raredisease/references
@@ -25,7 +25,7 @@ pack() {
   for try in 1 2 3 4 5 6 7 8 9 10 11 12; do
     wait_ram
     log "$tarname: пишу ($(du -sh "$parent/$name" | cut -f1)), попытка $try"
-    if nice -n 19 ionice -c3 tar -cf "$OUT/$tarname.tmp" -C "$parent" "$name"; then
+    if nice -n 10 tar -cf "$OUT/$tarname.tmp" -C "$parent" "$name"; then
       mv -f "$OUT/$tarname.tmp" "$OUT/$tarname" && touch "$OUT/$tarname.ok"
       log "$tarname: готово ($(du -h "$OUT/$tarname" | cut -f1))"; return 0
     fi
