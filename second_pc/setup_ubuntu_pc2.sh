@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PC2, step 1 (as root): Docker, Nextflow, tools, user ngs, data layout. Needs internet (~1 GB).
-#   wsl -d Ubuntu-24.04 -u root -- bash /mnt/e/pc2_kit/setup_ubuntu_pc2.sh
+#   wsl -d Ubuntu-24.04 -u root -- bash /mnt/f/pc2_kit/setup_ubuntu_pc2.sh
 set -euo pipefail
 NGS_USER=ngs
 cat > /etc/wsl.conf <<CONF

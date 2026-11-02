@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # PC1 (Ubuntu): put everything slow to download onto the dock disk, without stopping the queue.
 #   bash /mnt/c/NGS_pipeline/Claude_folder/second_pc/kit_export.sh
-# Writes E:\pc2_kit\: refs_<dir>.tar per reference folder (hardlinks kept), docker_images.tar,
+# Writes F:\pc2_kit\: refs_<dir>.tar per reference folder (hardlinks kept), docker_images.tar,
 # nextflow_home.tar (pipeline code + plugins), raredisease_setup.tar, wslconfig.txt, keepalive vbs.
 # References are only read, so a running queue is not disturbed; each write waits for a low-RAM
-# phase of the running sample (writes to /mnt/e fail with "Cannot allocate memory" otherwise).
+# phase of the running sample (writes to /mnt/f fail with "Cannot allocate memory" otherwise).
 set -uo pipefail
 REFS=/data/raredisease/references
-OUT=/mnt/e/pc2_kit
+OUT=/mnt/f/pc2_kit
 log() { echo "$(TZ=Asia/Yakutsk date '+%F %T') $*" | tee -a "$OUT/kit_export.log"; }
 
-mountpoint -q /mnt/e || sudo -n mount -t drvfs E: /mnt/e || { echo "диск E: не подключён"; exit 1; }
+mountpoint -q /mnt/f || sudo -n mount -t drvfs F: /mnt/f || { echo "диск F: (T7) не подключён"; exit 1; }
 mkdir -p "$OUT"
 
 wait_ram() {   # up to 2 h for >= 24 GB available, then free the page cache
@@ -34,7 +34,7 @@ pack() {
   log "$tarname: НЕ УДАЛОСЬ"; return 1
 }
 
-log "== старт, свободно на E: $(df -h /mnt/e | awk 'NR==2{print $4}') =="
+log "== старт, свободно на F: $(df -h /mnt/f | awk 'NR==2{print $4}') =="
 fail=0
 # one tar per folder of references/grch38 so a failure repeats only that folder
 for d in "$REFS"/grch38/*; do
@@ -59,4 +59,4 @@ cp /mnt/c/NGS_pipeline/Claude_folder/ubuntu_keepalive.vbs /mnt/c/NGS_pipeline/Cl
    /mnt/c/NGS_pipeline/Claude_folder/second_pc/setup_ubuntu_pc2.sh "$OUT/" 2>/dev/null || true
 mkdir -p "$OUT/manual" && cp /mnt/c/NGS_pipeline/Claude_folder/manual/{ngs.sh,install_ngs.sh,NGS.bat,ngs_guide.html} "$OUT/manual/"
 ls -la "$OUT" > "$OUT/contents.txt"
-[ $fail = 0 ] && log "== ВСЁ ГОТОВО: $(du -sh "$OUT" | cut -f1) в E:\\pc2_kit ==" || log "== есть ошибки, запустите скрипт ещё раз: готовые части пропустятся =="
+[ $fail = 0 ] && log "== ВСЁ ГОТОВО: $(du -sh "$OUT" | cut -f1) в F:\\pc2_kit ==" || log "== есть ошибки, запустите скрипт ещё раз: готовые части пропустятся =="

@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# PC2, step 2 (as ngs): unpack the kit from E:\pc2_kit and install the ngs command.
-#   wsl -d Ubuntu-24.04 -u ngs -- bash /mnt/e/pc2_kit/kit_import.sh
+# PC2, step 2 (as ngs): unpack the kit from F:\pc2_kit and install the ngs command.
+#   wsl -d Ubuntu-24.04 -u ngs -- bash /mnt/f/pc2_kit/kit_import.sh
 set -uo pipefail
-KIT=/mnt/e/pc2_kit
+KIT=$(cd "$(dirname "$0")" && pwd)   # the kit folder this script is run from (T7 may get another letter here)
 REFS=/data/raredisease/references
-mountpoint -q /mnt/e || sudo -n mount -t drvfs E: /mnt/e || { echo "диск E: не подключён"; exit 1; }
 [ -d "$KIT" ] || { echo "нет $KIT"; exit 1; }
 log() { echo "$(TZ=Asia/Yakutsk date '+%F %T') $*" | tee -a ~/kit_import.log; }
 fail=0
