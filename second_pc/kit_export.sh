@@ -25,7 +25,8 @@ pack() {
   for try in 1 2 3 4 5 6 7 8 9 10 11 12; do
     wait_ram
     log "$tarname: пишу ($(du -sh "$parent/$name" | cut -f1)), попытка $try"
-    if nice -n 10 tar -cf "$OUT/$tarname.tmp" -C "$parent" "$name"; then
+    # -b 4096: 2 MiB writes; with tar's default 10 KiB records the WSL->Windows bridge managed ~9 MB/s
+    if nice -n 10 tar -b 4096 -cf "$OUT/$tarname.tmp" -C "$parent" "$name"; then
       mv -f "$OUT/$tarname.tmp" "$OUT/$tarname" && touch "$OUT/$tarname.ok"
       log "$tarname: готово ($(du -h "$OUT/$tarname" | cut -f1))"; return 0
     fi
