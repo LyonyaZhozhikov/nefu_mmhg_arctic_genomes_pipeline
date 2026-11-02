@@ -10,7 +10,7 @@ REFS=/data/raredisease/references
 OUT=/mnt/f/pc2_kit
 log() { echo "$(TZ=Asia/Yakutsk date '+%F %T') $*" | tee -a "$OUT/kit_export.log"; }
 
-mountpoint -q /mnt/f || sudo -n mount -t drvfs F: /mnt/f || { echo "диск F: (T7) не подключён"; exit 1; }
+mountpoint -q /mnt/f || { sudo -n mkdir -p /mnt/f && sudo -n mount -t drvfs F: /mnt/f; } || { echo "диск F: (T7) не подключён к Ubuntu: sudo mkdir -p /mnt/f && sudo mount -t drvfs F: /mnt/f"; exit 1; }
 mkdir -p "$OUT"
 
 wait_ram() {   # up to 2 h for >= 24 GB available, then free the page cache
