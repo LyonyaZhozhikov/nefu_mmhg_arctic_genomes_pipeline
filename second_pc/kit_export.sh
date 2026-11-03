@@ -47,7 +47,8 @@ if [ ! -f "$OUT/docker_images.tar.ok" ]; then
   wait_ram
   imgs=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -v '<none>')
   log "docker: сохраняю $(echo "$imgs" | wc -l) образов"
-  if nice -n 19 docker save -o "$OUT/docker_images.tar.tmp" $imgs; then
+  # through dd: docker save -o onto /mnt/f produced no file at all
+  if docker save $imgs | dd of="$OUT/docker_images.tar.tmp" bs=4M status=none && [ -s "$OUT/docker_images.tar.tmp" ]; then
     mv -f "$OUT/docker_images.tar.tmp" "$OUT/docker_images.tar" && touch "$OUT/docker_images.tar.ok"
     log "docker: готово ($(du -h "$OUT/docker_images.tar" | cut -f1))"
   else log "docker: НЕ УДАЛОСЬ"; fail=1; fi
