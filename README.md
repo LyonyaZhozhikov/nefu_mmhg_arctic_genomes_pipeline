@@ -166,11 +166,24 @@ genmod до 100 ГБ ОЗУ, выравнивание 2 × 40 ГБ. При дв�
 
 ## 8. Установка на другую рабочую станцию той же конфигурации
 
-1. На исходной машине, когда нет активных прогонов, запустить `second_pc\EXPORT_OLD_PC.bat`. Система
-   (Ubuntu с референсами и Docker-образами, Scout, `C:\NGS_pipeline`, настройки WSL) копируется на внешний диск.
-2. На новой машине выполнить `wsl --install --no-distribution`, перезагрузиться и запустить
-   `IMPORT_NEW_PC.bat` с внешнего диска.
-3. Проверить окружение командой `ngs check`.
+Перенос выполняется комплектом файлов («kit») на внешнем диске, без копирования WSL целиком.
+Прогоны, образцы и результаты не переносятся.
+
+1. **Исходная машина** (Ubuntu, можно во время прогона): подключить внешний диск
+   (при необходимости `sudo mount -t drvfs F: /mnt/f`) и запустить `bash second_pc/kit_export.sh`.
+   Скрипт пишет в `F:\pc2_kit` архивы референсов по каталогам (с маркерами `.ok`, повторный запуск
+   продолжает с места остановки), Docker-образы, `~/.nextflow`, `raredisease-setup`, `.wslconfig`,
+   скрипт keep-alive и `manual/`. Объём около 650 ГБ. После окончания: `sudo umount /mnt/f`,
+   затем безопасное извлечение.
+2. **Новая машина**, PowerShell: `wsl --install Ubuntu-24.04` (пользователь `ngs`), скопировать
+   `wslconfig.txt` в `%USERPROFILE%\.wslconfig`, увеличить виртуальный диск WSL
+   (по умолчанию 1 ТБ, для прогонов мало): `wsl --shutdown`, затем
+   `wsl --manage Ubuntu-24.04 --resize 3TB`.
+3. В Ubuntu от root (нужен интернет): `bash /mnt/f/pc2_kit/setup_ubuntu_pc2.sh`
+   (systemd, sudo, Docker CE, Nextflow, каталоги `/data/raredisease`), затем `wsl --shutdown`.
+4. В Ubuntu от `ngs`: `bash /mnt/f/pc2_kit/kit_import.sh` (распаковка референсов, `docker load`,
+   установка `ngs`).
+5. Проверить окружение командой `ngs check` и положить `ubuntu_keepalive.vbs` в автозагрузку Windows.
 
 Обновление скриптов из репозитория:
 
