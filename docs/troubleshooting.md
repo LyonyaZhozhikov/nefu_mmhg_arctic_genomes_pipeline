@@ -69,8 +69,12 @@ This might be due to a clock skew problem
 только потом выполняет `resume`:
 
 ```bash
-tmux new -d -s r57 'n=0; while [ $n -lt 10 ]; do if pgrep -fi "bwa-mem2|markduplicates" >/dev/null; then n=0; else n=$((n+1)); fi; sleep 60; done; ngs resume SAMPLE01'
+tmux new -d -s r57 'n=0; while [ $n -lt 10 ]; do if pgrep -fi "[b]wa-mem2|[m]arkduplicates" >/dev/null; then n=0; else n=$((n+1)); fi; sleep 60; done; ngs resume SAMPLE01'
 ```
+
+Квадратные скобки в шаблоне обязательны: `pgrep -f` ищет по всей командной строке, и без них он
+находит саму оболочку ожидания (в её строке есть `bwa-mem2`), поэтому цикл никогда не завершится.
+Шаблон `[b]wa-mem2` совпадает с процессом `bwa-mem2`, но не с собственным текстом команды.
 
 Проверить: `tmux ls`; подключиться: `tmux attach -t r57`. Имена сессий tmux сопоставляются по
 префиксу — выбирайте уникальные имена.
