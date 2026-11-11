@@ -115,7 +115,19 @@ cmd_run() {
   mkdir -p "$run" "$smp"
   if [ "$src" != "$smp" ]; then
     say "копирую FASTQ из C:\\NGS_pipeline\\new_samples\\$code внутрь WSL (быстрее для пайплайна)"
-    rsync -rt --info=progress2 "$src"/ "$smp"/
+    # Reads from C: (/mnt/c, 9p) fail with "Cannot allocate memory" when the kernel has no free
+    # contiguous memory (page cache full, a sample computing). rsync continues where it stopped,
+    # so drop the cache, compact and try again (NGS_COPY_TRIES x 10 min).
+    local try tries=${NGS_COPY_TRIES:-6} ok=""
+    for try in $(seq 1 "$tries"); do
+      sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null 2>&1 || true
+      echo 1 | sudo -n tee /proc/sys/vm/compact_memory >/dev/null 2>&1 || true
+      if rsync -rt --info=progress2 "$src"/ "$smp"/; then ok=1; break; fi
+      [ "$try" -lt "$tries" ] || break
+      say "копирование прервалось (попытка $try из $tries), повторю через 10 минут"
+      sleep 600
+    done
+    [ -n "$ok" ] || die "FASTQ не скопировались за $tries попыток (ngs queue add $code $sex $pheno, когда ПК свободнее)"
   fi
 
   if [ -f "$smp/samplesheet.csv" ]; then
