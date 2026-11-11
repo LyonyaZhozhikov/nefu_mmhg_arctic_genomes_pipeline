@@ -24,6 +24,8 @@ usermod -aG docker "$NGS_USER"
 if [ ! -x /usr/local/bin/nextflow ]; then
   cd /tmp && curl -fsSL https://get.nextflow.io | bash && mv nextflow /usr/local/bin/ && chmod 755 /usr/local/bin/nextflow
 fi
+# no automatic apt upgrades: a Java update under a running Nextflow breaks process launch (jspawnhelper)
+systemctl disable --now unattended-upgrades apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
 mkdir -p /data/raredisease/{references,samples,runs,tmp}
 chown -R "$NGS_USER:$NGS_USER" /data/raredisease
 echo "Шаг 1 готов. Теперь в PowerShell: wsl --shutdown, затем шаг 2 (kit_import.sh)."
