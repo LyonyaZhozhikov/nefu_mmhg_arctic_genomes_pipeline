@@ -19,6 +19,14 @@
 #   ngs queue remove CODE    take a sample out;  ngs queue stop  stop after the current sample
 #                            Queue: one sample at a time; the archive of each finished sample
 #                            runs alongside the next one.
+#   ngs intake sex           Очередь на D: показать новых пациентов (ФИО + код) и задать пол M/F/U
+#   ngs intake               автоприём: что лежит в Очереди, что считается, что готово
+#   ngs intake start|stop    включить/выключить фоновый автоприём (tmux ngs_intake, сам стартует с Windows)
+#   ngs intake now           проверить Очередь прямо сейчас (то же, что делает фон раз в 10 минут)
+#                            Автоприём держит ~5 образцов готовыми на C:, копирует FASTQ из Очереди
+#                            с проверкой gzip/md5, ставит в ngs queue, а после прогона и md5 архива
+#                            кладёт <дата>_<код>_<пол> в папку пациента и переносит её в
+#                            D:\1_fastq_rec (есть PDF) или D:\2_fastq (PDF нет). Журнал: Очередь\_журнал.txt
 #
 # Layout:
 #   C:\NGS_pipeline\new_samples\CODE\      you put FASTQ here (any MGI/Illumina names, *_1/*_2 or *_R1/*_R2)
@@ -43,6 +51,8 @@ ME=$(readlink -f "$0")
 QUEUE=$RUNS/queue.txt          # waiting samples, one "CODE SEX PHENO" per line
 QLOG=$RUNS/queue.log
 QSTOP=$RUNS/queue.stop
+QHOLD=$RUNS/queue.hold         # set by ngs queue stop: the intake must not start the queue again
+COPYLOCK=$RUNS/intake.copying  # the intake is copying FASTQ from D: (archives wait for it)
 
 say()  { printf '\e[1;36m>>\e[0m %s\n' "$*"; }
 warn() { printf '\e[1;33m!!\e[0m %s\n' "$*"; }
@@ -87,9 +97,9 @@ make_samplesheet() {
     [ -f "$r2" ] || die "нет пары для $(basename "$r1") (ожидал $(basename "$r2"))"
     base=$(basename "${base%.f*q.gz}"); base=${base#"${code}"_}; base=${base//[^A-Za-z0-9_-]/_}
     echo "$code,$base,$r1,$r2,$sexnum,$pheno,0,0,case_$code" >> "$out"; n=$((n+1))
-  done < <(find "$dir" -maxdepth 1 -type f \( -name '*_R1*.f*q.gz' -o -name '*_1.f*q.gz' \) | sort)
+  done < <(find "$dir" -maxdepth 3 -type f \( -name '*_R1*.f*q.gz' -o -name '*_1.f*q.gz' \) | sort)
   [ $n -gt 0 ] || die "в $dir не найдено FASTQ (*_1.fq.gz / *_R1.fastq.gz ...)"
-  local total; total=$(find "$dir" -maxdepth 1 -type f -name '*.f*q.gz' | wc -l)
+  local total; total=$(find "$dir" -maxdepth 3 -type f -name '*.f*q.gz' | wc -l)
   [ $((n*2)) -eq "$total" ] || die "FASTQ файлов $total, а пар найдено $n: проверьте имена"
   say "samplesheet: $n пар FASTQ"
 }
@@ -265,13 +275,13 @@ cmd_queue() {
       [ -s "$QUEUE" ] || die "очередь пуста: ngs queue add CODE F/M/U"
       docker info >/dev/null 2>&1 || die "Docker не запущен: sudo service docker start"
       mount_d   # now, while you are here: the background queue cannot type a password
-      rm -f "$QSTOP"
+      rm -f "$QSTOP" "$QHOLD"
       tmux new-session -d -s ngs_queue "bash '$ME' _queue_loop"
       say "очередь запущена в фоне. Окно можно закрыть."
       say "смотреть: ngs queue   журнал: tail -f $QLOG" ;;
     stop)
       queue_running || die "очередь не запущена"
-      touch "$QSTOP"
+      touch "$QSTOP" "$QHOLD"   # hold: the intake does not restart it until ngs queue start
       say "очередь остановится после текущего образца (сам образец и его архивация доработают)" ;;
     list)
       if queue_running; then say "очередь РАБОТАЕТ$([ -f "$QSTOP" ] && echo ', остановится после текущего образца')"
@@ -370,7 +380,9 @@ cmd__autoarchive() {
     # wait (up to 2 h) for a light phase of the running sample: bwa-mem2, DeepVariant and genmod
     # take most of the RAM, CADD/VEP leave plenty
     local w=0
-    while [ "$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo)" -lt "${NGS_ARCHIVE_MIN_RAM_GB:-24}" ] && [ $w -lt 120 ]; do
+    # also wait while the intake copies FASTQ from D:: both at once overload the C:/D: bridge
+    while { [ "$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo)" -lt "${NGS_ARCHIVE_MIN_RAM_GB:-24}" ] \
+            || [ -f "$COPYLOCK" ]; } && [ $w -lt 120 ]; do
       sleep 60; w=$((w + 1))
     done
     # /mnt/d writes need free contiguous kernel memory: drop the page cache and compact first
@@ -400,6 +412,13 @@ cmd__autoarchive_core() {
   size=$(( $(du -s --block-size=1G "$raw" | cut -f1) + $(du -sL --block-size=1G "$res" | cut -f1) + 5 ))
   [ "$(gb /mnt/d)" -ge "$size" ] || { echo "на D: мало места: нужно ~$size ГБ"; return 1; }
   qlog "$code: копирую на D:\\data_annotated\\${date}_${code}_${sex} (~$size ГБ)"
+  # a sample taken from the Очередь by ngs intake: its original FASTQ are already on D:, so move them
+  # into raw\ (instant, same disk) instead of writing them back; the md5 check below compares them
+  # with the copy that was computed on
+  local orig; orig=$(intake_fastq_of "$code")
+  if [ -n "$orig" ] && [ -d "$orig" ] && [ ! -e "$dest/raw" ]; then
+    mkdir -p "$dest" && mv "$orig" "$dest/raw" && qlog "$code: исходные FASTQ из папки пациента перенесены в raw (без копирования)"
+  fi
   mkdir -p "$dest/raw" "$dest/processed"
   local prog=(); [ -t 1 ] && prog=(--info=progress2)
   nice -n 19 rsync -rtL "${prog[@]}" "$raw"/ "$dest/raw"/
@@ -440,6 +459,393 @@ cmd_discard() {
   say "удалено. Образец можно запустить заново: ngs run $code F/M/U"
 }
 
+# ---------------------------------------------------------------- intake (автоприём из Очереди)
+# You put a patient folder (ФИО in its name) into D:\data_annotated\Очередь; inside it one folder
+# with the FASTQ (code at the end of its name, e.g. "..._F2500027392") and maybe PDF reports.
+# `ngs intake sex` asks the sex; then the background intake (tmux ngs_intake):
+#   1. keeps ~INTAKE_TARGET samples waiting in ngs queue, copying the next one D: -> /data/raredisease/samples
+#      (inside WSL on C:, so ngs run does not copy it a second time) only when RAM is free, no archive
+#      is writing to D: and /data keeps INTAKE_MIN_FREE_GB free; checks every FASTQ with gzip -t and
+#      against the vendor's md5 list if there is one; moves the patient folder to D:\data_annotated
+#   2. after the run and the md5-checked archive puts <date>_<code>_<sex> into the patient folder and
+#      moves it to D:\1_fastq_rec (any PDF) or D:\2_fastq (no PDF)
+# State of each patient lives in a small file ngs_intake.txt inside the patient folder (code, sex,
+# state; no names). Patient names are only ever written on D: (folder names and Очередь\_журнал.txt),
+# never into the pipeline folders, sample codes or queue.log.
+INTAKE_CONF=$SETUP/conf/intake.conf
+INTAKE_INBOX=/mnt/d/data_annotated/Очередь
+INTAKE_WORK=/mnt/d/data_annotated
+INTAKE_DONE_PDF=/mnt/d/1_fastq_rec
+INTAKE_DONE_NOPDF=/mnt/d/2_fastq
+INTAKE_TARGET=5            # samples waiting in the queue (the one computing is not counted)
+INTAKE_MIN_FREE_GB=1000    # /data must still have this much free after copying a sample
+INTAKE_MIN_RAM_GB=24       # copy only when this much RAM is available (9p bridge ENOMEM otherwise)
+INTAKE_PERIOD_MIN=10
+# shellcheck disable=SC1090
+[ -f "$INTAKE_CONF" ] && . "$INTAKE_CONF"
+MARK=ngs_intake.txt
+ILOCK=$RUNS/intake.lock
+ILAST=$RUNS/intake.last
+
+intake_running() { tmux has-session -t ngs_intake 2>/dev/null; }
+mget() { [ -f "$1/$MARK" ] || return 0; sed -n "s/^$2=//p" "$1/$MARK" | tail -n 1; }
+mset() {  # mset DIR key value  (rewrite through a temp file: drvfs has no in-place sed -i rename issues)
+  local f=$1/$MARK
+  { grep -v "^$2=" "$f" 2>/dev/null || true; echo "$2=$3"; } > "$f.tmp" && mv -f "$f.tmp" "$f"
+}
+# journal on D: (may contain ФИО); the code-only part also goes to queue.log
+jlog() {
+  local l; l="$(TZ=Asia/Yakutsk date '+%F %T') $*"
+  printf '%s\r\n' "$l" >> "$INTAKE_INBOX/_журнал.txt" 2>/dev/null || true
+  [ -t 1 ] && echo "$l"; return 0
+}
+# the same waiting message only once until something changes
+jlog_once() { [ "$(cat "$ILAST" 2>/dev/null)" = "$*" ] && return 0; echo "$*" > "$ILAST"; jlog "$*"; }
+ram_gb() { awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo; }
+fio() { basename "$1"; }
+
+# patient folders: in the Очередь, and (with ngs_intake.txt) those already taken into work
+intake_dirs() {
+  local d
+  for d in "$INTAKE_INBOX"/*/; do
+    [ -d "$d" ] || continue; case "$(basename "$d")" in _*) continue;; esac; echo "${d%/}"
+  done
+  for d in "$INTAKE_WORK"/*/ "$INTAKE_DONE_PDF"/*/ "$INTAKE_DONE_NOPDF"/*/; do
+    [ -f "$d$MARK" ] && [ "${d%/}" != "$INTAKE_INBOX" ] && echo "${d%/}"
+  done
+  return 0
+}
+# the one sub-folder of a patient folder that holds the FASTQ ("" + reason on stderr otherwise)
+fastq_sub() {
+  local p=$1 tops
+  tops=$(find "$p" -mindepth 1 -maxdepth 4 -type f -name '*.f*q.gz' ! -path "$p/20??-??-??_*" -printf '%P\n' 2>/dev/null \
+         | awk -F/ '{print (NF==1 ? "." : $1)}' | sort -u)
+  if [ -z "$tops" ]; then echo "нет FASTQ (*.fq.gz / *.fastq.gz)" >&2; return 1; fi
+  if printf '%s\n' "$tops" | grep -qx '\.'; then echo "FASTQ лежат прямо в папке пациента, нужна подпапка" >&2; return 1; fi
+  if [ "$(printf '%s\n' "$tops" | wc -l)" -gt 1 ]; then echo "FASTQ в нескольких подпапках: $(printf '%s\n' "$tops" | tr '\n' ';')" >&2; return 1; fi
+  echo "$tops"
+}
+# code from the end of the FASTQ folder name: "Первичные данные ..._F2500027392" -> F2500027392
+guess_code() {
+  local s=$1; s=${s##*[!A-Za-z0-9_-]}; s=${s#"${s%%[A-Za-z0-9]*}"}
+  [ ${#s} -ge 4 ] && echo "$s"; return 0
+}
+code_busy() {  # prints why the code cannot be used now
+  local c=$1
+  [ -e "$RUNS/$c" ] && { echo "уже есть прогон $c (ngs status)"; return 0; }
+  [ -e "$SAMPLES/$c" ] && { echo "уже есть /data/raredisease/samples/$c"; return 0; }
+  [ -e "$NEW_SAMPLES/$c" ] && { echo "уже есть new_samples\\$c"; return 0; }
+  grep -q "^$c " "$QUEUE" 2>/dev/null && { echo "$c уже в очереди"; return 0; }
+  compgen -G "$INTAKE_WORK/20??-??-??_${c}_?" >/dev/null && { echo "на D: уже есть архив ..._${c}_"; return 0; }
+  return 1
+}
+# the original FASTQ folder on D: of a sample taken through the intake (used by the archive)
+intake_fastq_of() {
+  local f d
+  for f in "$INTAKE_WORK"/*/"$MARK" "$INTAKE_INBOX"/*/"$MARK"; do
+    [ -f "$f" ] && grep -qx "code=$1" "$f" || continue
+    d=$(dirname "$f"); [ -n "$(mget "$d" fastq)" ] && echo "$d/$(mget "$d" fastq)"; return 0
+  done
+  return 0
+}
+
+cmd_intake() {
+  export LANG=C.UTF-8
+  local sub=${1:-status}; shift || true
+  case "$sub" in
+    sex) intake_sex ;;
+    status|list) intake_status ;;
+    now) intake_mounted || die "диск D: не подключён"; mkdir -p "$RUNS"
+         ( flock -n 9 || die "автоприём сейчас уже работает (подождите или ngs intake)"; intake_cycle ) 9> "$ILOCK" ;;
+    start)
+      intake_running && { say "автоприём уже работает"; return 0; }
+      mkdir -p "$RUNS"
+      tmux new-session -d -s ngs_intake "bash '$ME' _intake_loop"
+      say "автоприём включён: проверяет Очередь каждые $INTAKE_PERIOD_MIN минут. Журнал: D:\\data_annotated\\Очередь\\_журнал.txt" ;;
+    stop)
+      intake_running || { say "автоприём и так выключен"; return 0; }
+      tmux kill-session -t ngs_intake; rm -f "$COPYLOCK"
+      say "автоприём выключен (очередь и прогоны продолжают работать). Если шло копирование, оно продолжится со следующего включения" ;;
+    *) die "ngs intake sex|status|now|start|stop" ;;
+  esac
+}
+intake_mounted() { mountpoint -q /mnt/d || sudo -n mount -t drvfs D: /mnt/d 2>/dev/null; }
+
+cmd__intake_loop() {
+  export LANG=C.UTF-8
+  jlog "автоприём включён"
+  while true; do
+    if intake_mounted && [ -d "$INTAKE_INBOX" ]; then
+      ( flock -n 9 || exit 0; intake_cycle ) 9> "$ILOCK" || true
+    fi
+    sleep $((INTAKE_PERIOD_MIN * 60))
+  done
+}
+
+state_ru() {
+  case "$1" in
+    "") echo "нужен пол" ;; READY) echo "ждёт копирования" ;; COPYING) echo "копируется на C:" ;;
+    QUEUED) echo "в очереди / считается" ;; FAILED) echo "ПРОГОН УПАЛ" ;; BAD) echo "ОШИБКА" ;;
+    DONE) echo "готово" ;; MANUAL) echo "готово, перенести вручную" ;; *) echo "$1" ;;
+  esac
+}
+
+intake_status() {
+  export LANG=C.UTF-8
+  intake_mounted || die "диск D: не подключён"
+  intake_running && say "автоприём ВКЛЮЧЁН (каждые $INTAKE_PERIOD_MIN мин)" || warn "автоприём выключен (ngs intake start)"
+  # padding by characters, not bytes (Cyrillic names)
+  pad() { local t=${1:0:$2}; printf '%s%*s ' "$t" $(( $2 - ${#t} )) ''; }
+  pad "ПАЦИЕНТ (папка)" 38; pad "КОД" 14; pad "ПОЛ" 3; pad "СОСТОЯНИЕ" 24; echo "ПРОГОН"
+  local p st code rs why
+  while IFS= read -r p; do
+    st=$(mget "$p" state); code=$(mget "$p" code)
+    [ "$st" = DONE ] && [ "$(dirname "$p")" != "$INTAKE_WORK" ] && [ "$(dirname "$p")" != "$INTAKE_INBOX" ] && continue
+    why=""
+    if [ -z "$st" ]; then
+      if code=$(fastq_sub "$p" 2>/tmp/ngs_why.$$); then code=$(guess_code "$code"); else code=""; st=BAD; why=$(cat /tmp/ngs_why.$$); fi
+      rm -f /tmp/ngs_why.$$
+    fi
+    rs=""; [ -n "$code" ] && rs=$(cat "$RUNS/$code/STATUS" 2>/dev/null || true)
+    pad "$(fio "$p")" 38; pad "${code:--}" 14; pad "$(mget "$p" sex)" 3; pad "$(state_ru "$st")" 24; echo "$rs"
+    [ -n "$why" ] && echo "      причина: $why"
+    [ "$st" = BAD ] && [ -z "$why" ] && echo "      причина: $(mget "$p" note)"
+  done < <(intake_dirs)
+  echo; say "в очереди ждут: $(grep -c . "$QUEUE" 2>/dev/null || true) (цель $INTAKE_TARGET), /data свободно $(gb /data) ГБ, RAM свободно $(ram_gb) ГБ"
+  [ -f "$INTAKE_INBOX/_журнал.txt" ] && { echo "журнал (последнее):"; tail -n 8 "$INTAKE_INBOX/_журнал.txt" | tr -d '\r' | sed 's/^/   /'; }
+  return 0
+}
+
+# Ask the sex (and confirm the code) for the patients in the Очередь that are not taken yet.
+intake_sex() {
+  export LANG=C.UTF-8
+  intake_mounted || die "диск D: не подключён"
+  [ -d "$INTAKE_INBOX" ] || die "нет папки $INTAKE_INBOX"
+  local p list=() sub code why sex pdf size st a n=0
+  while IFS= read -r p; do [ "$(dirname "$p")" = "$INTAKE_INBOX" ] && list+=("$p"); done < <(intake_dirs)
+  [ ${#list[@]} -gt 0 ] || { say "в Очереди пусто"; return 0; }
+  say "Пациенты в Очереди. Пол: M, F или U (неизвестен). Enter оставить как есть / позже, k исправить код"
+  for p in "${list[@]}"; do
+    n=$((n+1)); st=$(mget "$p" state)
+    case "$st" in COPYING|QUEUED|DONE|MANUAL) continue;; esac
+    echo
+    if ! sub=$(fastq_sub "$p" 2>/tmp/ngs_why.$$); then
+      printf '%2d) %s\n    НЕ ПОДХОДИТ: %s\n' "$n" "$(fio "$p")" "$(cat /tmp/ngs_why.$$)"; rm -f /tmp/ngs_why.$$; continue
+    fi
+    rm -f /tmp/ngs_why.$$
+    code=$(mget "$p" code); [ -n "$code" ] || code=$(guess_code "$sub")
+    pdf=$(find "$p" -maxdepth 3 -iname '*.pdf' -print -quit); [ -n "$pdf" ] && pdf="есть -> 1_fastq_rec" || pdf="нет -> 2_fastq"
+    size=$(du -s --block-size=1G "$p/$sub" 2>/dev/null | cut -f1)
+    printf '%2d) %s\n    код: %s   FASTQ: %s файлов, %s ГБ   PDF: %s\n' "$n" "$(fio "$p")" "${code:-НЕ НАЙДЕН}" \
+      "$(find "$p/$sub" -type f -name '*.f*q.gz' | wc -l)" "$size" "$pdf"
+    [ "$st" = BAD ] && echo "    прошлый раз: ОШИБКА: $(mget "$p" note)  (новый ввод пола = попробовать снова)"
+    while true; do
+      read -r -p "    пол [$(mget "$p" sex)]: " a </dev/tty || return 0
+      a=${a^^}
+      case "$a" in
+        "") break ;;
+        K|К) read -r -p "    код образца (латиница, цифры, _ -): " code </dev/tty
+             [[ "$code" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { warn "такой код нельзя"; code=""; } ;;
+        M|F|U|М)
+          [ "$a" = М ] && a=M
+          [ -n "$code" ] || { warn "сначала задайте код (k)"; continue; }
+          if why=$(code_busy "$code"); then warn "$why. Задайте другой код (k) или разберитесь со старым прогоном"; continue; fi
+          mset "$p" code "$code"; mset "$p" sex "$a"; mset "$p" fastq "$sub"
+          [ -n "$(mget "$p" pheno)" ] || mset "$p" pheno 2
+          mset "$p" state READY; mset "$p" ready_at "$(date +%s)"; mset "$p" note ""
+          jlog "$(fio "$p") ($code): пол $a, ждёт копирования"
+          say "записано: $code $a"; break ;;
+        *) warn "M, F, U, Enter или k" ;;
+      esac
+    done
+  done
+  echo; intake_running && say "автоприём заберёт их сам (до $INTAKE_TARGET в очереди)" \
+    || warn "автоприём выключен: включите (пункт 15 / ngs intake start) или проверьте сейчас (пункт 14)"
+}
+
+# gzip test + md5 in one read. Prints "OK <md5> <file>" or "BAD - <file>"
+cmd__gzcheck() {
+  local f=$1 z=gzip m; command -v pigz >/dev/null && z=pigz
+  m=$(mktemp)
+  if nice -n 10 tee >(md5sum | cut -c1-32 > "$m") < "$f" | $z -t 2>/dev/null; then
+    local w=0; while [ ! -s "$m" ] && [ $w -lt 60 ]; do sleep 1; w=$((w+1)); done
+    echo "OK $(cat "$m") $f"
+  else echo "BAD - $f"; fi
+  rm -f "$m"
+}
+# check every FASTQ in DIR; prints the bad files (relative), returns 1 if any
+check_copy() {
+  local dir=$1 vend res bad=""
+  res=$(cd "$dir" && find . -type f -name '*.f*q.gz' -print0 | xargs -0 -r -n 1 -P 4 bash "$ME" _gzcheck)
+  bad=$(printf '%s\n' "$res" | sed -n 's/^BAD - //p')
+  # the vendor's md5 list (any *md5* file with "hash  name" lines) if there is one
+  vend=$(cd "$dir" && find . -type f -iname '*md5*' ! -name '*.gz' -print -quit)
+  if [ -n "$vend" ]; then
+    local h f n=0 miss
+    while read -r _ h f; do
+      [ "$h" != - ] || continue
+      miss=$(tr -d '\r' < "$dir/$vend" | awk -v n="$(basename "$f")" '{x=$NF; sub(/^\*/,"",x); sub(/.*\//,"",x)} x==n {print tolower($1); exit}')
+      [ -n "$miss" ] || continue; n=$((n+1))
+      [ "$miss" = "$h" ] || bad+=$'\n'"$f"
+    done <<< "$res"
+    echo "md5 поставщика: сверено $n файлов" >&2
+  fi
+  bad=$(printf '%s\n' "$bad" | sed '/^$/d' | sort -u)
+  [ -z "$bad" ] && return 0
+  printf '%s\n' "$bad"; return 1
+}
+
+# copy one patient's FASTQ D: -> /data/raredisease/samples/CODE, check, queue it. 0 ok, 1 bad, 2 try later
+intake_stage() {
+  local p=$1 code sex pheno sub src dst why try ok="" bad f
+  code=$(mget "$p" code); sex=$(mget "$p" sex); pheno=$(mget "$p" pheno); sub=$(mget "$p" fastq)
+  src=$p/$sub; dst=$SAMPLES/$code
+  [ -d "$src" ] || { mset "$p" state BAD; mset "$p" note "нет папки FASTQ $sub"; jlog "$(fio "$p") ($code): ОШИБКА, нет папки $sub"; return 1; }
+  if why=$(code_busy "$code"); then
+    mset "$p" state BAD; mset "$p" note "$why"; jlog "$(fio "$p") ($code): ОШИБКА, $why"; return 1
+  fi
+  mset "$p" state COPYING; touch "$COPYLOCK"
+  jlog "$(fio "$p") ($code): копирую FASTQ на C: ($(du -s --block-size=1G "$src" | cut -f1) ГБ)"
+  qlog "$code: автоприём копирует FASTQ с D:"
+  mkdir -p "$dst.part"
+  for try in 1 2 3 4 5 6; do
+    sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null 2>&1 || true
+    echo 1 | sudo -n tee /proc/sys/vm/compact_memory >/dev/null 2>&1 || true
+    if nice -n 10 rsync -rt "$src"/ "$dst.part"/ 2>>"$QLOG"; then ok=1; break; fi
+    [ $try -lt 6 ] && { qlog "$code: копирование прервалось (попытка $try из 6), повтор через 10 минут"; sleep 600; }
+  done
+  if [ -z "$ok" ]; then
+    rm -f "$COPYLOCK"; mset "$p" state READY
+    jlog "$(fio "$p") ($code): копирование не удалось 6 раз подряд, попробую позже"; return 2
+  fi
+  jlog "$(fio "$p") ($code): проверяю целостность FASTQ (gzip + md5)"
+  if ! bad=$(check_copy "$dst.part" 2>>"$QLOG"); then
+    # once more for the bad files: a bad copy over the bridge, or the source itself is broken
+    while IFS= read -r f; do rm -f "$dst.part/$f"; done <<< "$bad"
+    rsync -rt "$src"/ "$dst.part"/ 2>>"$QLOG" || true
+    if ! bad=$(check_copy "$dst.part" 2>>"$QLOG"); then
+      rm -rf "${dst:?}.part"; rm -f "$COPYLOCK"
+      mset "$p" state BAD; mset "$p" note "битые FASTQ в исходной папке: $(echo "$bad" | sed 's|^\./||' | tr '\n' ' ')"
+      jlog "$(fio "$p") ($code): ОШИБКА, битые FASTQ (дважды): $(echo "$bad" | sed 's|^\./||' | tr '\n' ' ' | sed 's/ *$//'). Нужна новая выгрузка; образец не ставлю"
+      qlog "$code: автоприём: битые FASTQ, образец не поставлен"
+      return 1
+    fi
+  fi
+  mv "$dst.part" "$dst"; rm -f "$COPYLOCK"
+  if ! bash "$ME" queue add "$code" "$sex" "$pheno" >> "$QLOG" 2>&1; then
+    mset "$p" state BAD; mset "$p" note "не удалось поставить в очередь (см. queue.log)"
+    jlog "$(fio "$p") ($code): ОШИБКА постановки в очередь"; return 1
+  fi
+  mset "$p" state QUEUED; mset "$p" queued_at "$(date +%s)"
+  # the patient folder leaves the Очередь (as done by hand before): D:\data_annotated\ФИО
+  local np=$INTAKE_WORK/$(fio "$p")
+  if [ "$(dirname "$p")" = "$INTAKE_INBOX" ] && [ ! -e "$np" ] && mv "$p" "$np"; then p=$np; fi
+  jlog "$(fio "$p") ($code $sex): FASTQ проверены, в очереди. Папка: $p"
+  qlog "$code: автоприём: FASTQ проверены, поставлен в очередь"
+  return 0
+}
+
+# after the md5-checked archive: <date>_<code>_<sex> into the patient folder, patient folder to its shelf
+intake_finish() {
+  local p=$1 code dest name target pdf
+  code=$(mget "$p" code)
+  dest=$(sed -n 's/^archive=//p' "$RUNS/$code/run_info.txt" | tail -n 1)
+  [ -n "$dest" ] && [ -d "$dest" ] && [ -s "$dest/md5_raw.txt" ] && [ -s "$dest/md5_processed.txt" ] || {
+    jlog_once "$(fio "$p") ($code): архив отмечен готовым, но папки $dest или её md5-списков нет, не трогаю"; return 1; }
+  name=$(basename "$dest")
+  if [ "$(dirname "$dest")" != "$p" ]; then
+    [ -e "$p/$name" ] && { jlog_once "$(fio "$p") ($code): в папке пациента уже есть $name, не трогаю"; return 1; }
+    mv "$dest" "$p/" || return 1
+    sed -i "s|^archive=.*|archive=$RUNS/$code (перенесён в папку пациента)|" "$RUNS/$code/run_info.txt"
+  fi
+  [ -d "$p/$(mget "$p" fastq)" ] && [ -n "$(mget "$p" fastq)" ] && \
+    jlog "$(fio "$p") ($code): исходная папка FASTQ осталась рядом (её копия в $name\\raw), можно удалить вручную"
+  pdf=$(find "$p" -maxdepth 3 -iname '*.pdf' ! -path "$p/$name/*" -print -quit)
+  [ -n "$pdf" ] && target=$INTAKE_DONE_PDF || target=$INTAKE_DONE_NOPDF
+  mset "$p" state DONE; mset "$p" done_at "$(date +%s)"
+  if [ -e "$target/$(fio "$p")" ]; then
+    mset "$p" state MANUAL
+    jlog "$(fio "$p") ($code): ГОТОВО, но в $(basename "$target") уже есть папка с таким именем; оставил в $(dirname "$p"), перенесите вручную"
+    return 0
+  fi
+  mkdir -p "$target"
+  if mv "$p" "$target/"; then
+    jlog "$(fio "$p") ($code): ГОТОВО, md5 совпали, папка перенесена в $(basename "$target")"
+    qlog "$code: автоприём: готово, разложено по папкам на D:"
+  else
+    mset "$p" state MANUAL; jlog "$(fio "$p") ($code): ГОТОВО, но перенести в $(basename "$target") не удалось, перенесите вручную"
+  fi
+}
+
+intake_cycle() {
+  local p st code rs waiting next
+  # we hold the lock: a copy left half-done by a stopped intake / restart continues from where it was
+  rm -f "$COPYLOCK"
+  while IFS= read -r p; do
+    [ "$(mget "$p" state)" = COPYING ] && mset "$p" state READY
+  done < <(intake_dirs)
+  # 1. finished / failed / interrupted samples
+  while IFS= read -r p; do
+    st=$(mget "$p" state); code=$(mget "$p" code)
+    case "$st" in QUEUED|FAILED) ;; *) continue;; esac
+    rs=$(cat "$RUNS/$code/STATUS" 2>/dev/null || echo "")
+    case "$rs" in
+      ARCHIVED) intake_finish "$p" || true ;;
+      FAILED|RUNNING)
+        running "$code" && continue
+        grep -q "^$code " "$QUEUE" 2>/dev/null && continue
+        if [ "$rs" = RUNNING ] && ! queue_running && [ "$(mget "$p" resumed)" != 1 ]; then
+          # interrupted (PC restart): back to the head of the queue, the queue resumes it
+          mset "$p" resumed 1; mkdir -p "$RUNS"; touch "$QUEUE"
+          sed -i "1i $code $(mget "$p" sex) $(mget "$p" pheno)" "$QUEUE"; [ -s "$QUEUE" ] || echo "$code $(mget "$p" sex) $(mget "$p" pheno)" > "$QUEUE"
+          jlog "$(fio "$p") ($code): прогон был прерван (перезагрузка?), вернул в начало очереди"
+        elif [ "$st" != FAILED ] && { ! queue_running || tail -n 50 "$QLOG" | grep -q "$code: .*Оставлен на C:"; }; then
+          mset "$p" state FAILED
+          jlog "$(fio "$p") ($code): ПРОГОН УПАЛ (дважды). Данные оставлены на C:, разбор: ngs log $code; потом ngs resume $code"
+        fi ;;
+      ARCHIVE_FAILED) jlog_once "$(fio "$p") ($code): перенос на D: пока не удался, повторится сам (ngs archive $code)" ;;
+    esac
+  done < <(intake_dirs)
+
+  # 2. keep INTAKE_TARGET samples waiting in the queue
+  while true; do
+    waiting=$(grep -c . "$QUEUE" 2>/dev/null || true); waiting=${waiting:-0}
+    [ "$waiting" -lt "$INTAKE_TARGET" ] || break
+    next=""
+    while IFS= read -r p; do
+      [ "$(dirname "$p")" = "$INTAKE_INBOX" ] && [ "$(mget "$p" state)" = READY ] && echo "$(mget "$p" ready_at) $p"
+    done < <(intake_dirs) | sort -n | sed -n '1s/^[^ ]* //p' > "$RUNS/intake.next" || true
+    next=$(cat "$RUNS/intake.next"); rm -f "$RUNS/intake.next"
+    [ -n "$next" ] || break
+    code=$(mget "$next" code)
+    if grep -qx ARCHIVING "$RUNS"/*/STATUS 2>/dev/null; then jlog_once "жду: идёт перенос архива на D:, копировать параллельно нельзя"; break; fi
+    if [ "$(ram_gb)" -lt "$INTAKE_MIN_RAM_GB" ]; then jlog_once "жду: мало свободной памяти ($(ram_gb) ГБ), копирование позже"; break; fi
+    local size; size=$(du -s --block-size=1G "$next/$(mget "$next" fastq)" 2>/dev/null | cut -f1)
+    if [ $(( $(gb /data) - ${size:-0} )) -lt "$INTAKE_MIN_FREE_GB" ]; then
+      jlog_once "жду места на C: (/data свободно $(gb /data) ГБ, образцу $code нужно $size ГБ + запас $INTAKE_MIN_FREE_GB)"; break
+    fi
+    local rc=0; intake_stage "$next" || rc=$?
+    [ $rc = 2 ] && break
+    rm -f "$ILAST"
+  done
+
+  # 3. the queue must be running when it has samples (after a restart too), unless stopped by hand
+  if [ -s "$QUEUE" ] && ! queue_running && [ -f "$QHOLD" ]; then
+    jlog_once "очередь остановлена вручную (ngs queue stop): сам не запускаю, запустите ngs queue start"
+  elif [ -s "$QUEUE" ] && ! queue_running; then
+    local head need=0; head=$(head -n 1 "$QUEUE" | cut -d' ' -f1)
+    if [ ! -f "$RUNS/$head/run_info.txt" ] && [ -d "$SAMPLES/$head" ]; then
+      need=$(( $(du -s --block-size=1G "$SAMPLES/$head" | cut -f1) * 6 + 200 ))
+    fi
+    if [ "$(gb /data)" -lt "$need" ]; then
+      jlog_once "очередь ждёт места на C: для $head (/data свободно $(gb /data) ГБ, нужно ~$need)"
+    elif docker info >/dev/null 2>&1; then
+      bash "$ME" queue start >> "$QLOG" 2>&1 && jlog "очередь запущена автоприёмом ($(grep -c . "$QUEUE") образцов)"
+    else jlog_once "очередь не запускаю: Docker не отвечает (sudo service docker start)"; fi
+  fi
+  return 0
+}
+
 # ---------------------------------------------------------------- menu
 cmd_menu() {
   while true; do
@@ -456,6 +862,11 @@ cmd_menu() {
     echo " 9  Очередь: показать"
     echo "10  Очередь: добавить образец"
     echo "11  Очередь: запустить"
+    echo "--- Автоприём из D:\\data_annotated\\Очередь ---"
+    echo "12  Указать пол новым пациентам в Очереди"
+    echo "13  Автоприём: состояние"
+    echo "14  Автоприём: проверить Очередь сейчас"
+    echo "15  Автоприём: включить / выключить"
     echo " 0  Выход"
     read -r -p "Выбор: " c
     case "$c" in
@@ -476,12 +887,16 @@ cmd_menu() {
          read -r -p "Больной? (Enter = да, n = здоровый): " p; [ "$p" = n ] && p=1 || p=2
          ( cmd_queue add "$code" "$sex" "$p" ) ;;
      11) ( cmd_queue start ) ;;
+     12) ( cmd_intake sex ) ;;
+     13) ( cmd_intake status ) ;;
+     14) ( cmd_intake now ) ;;
+     15) if intake_running; then ( cmd_intake stop ); else ( cmd_intake start ); fi ;;
       0|q) exit 0 ;;
     esac || true
   done
 }
 
 case "${1:-menu}" in
-  menu|run|resume|status|log|stop|archive|discard|check|queue|_worker|_queue_loop|_autoarchive|_autoarchive_core) c=${1:-menu}; shift || true; "cmd_$c" "$@" ;;
-  *) sed -n '2,28p' "$ME" ;;
+  menu|run|resume|status|log|stop|archive|discard|check|queue|intake|_worker|_queue_loop|_autoarchive|_autoarchive_core|_intake_loop|_gzcheck) c=${1:-menu}; shift || true; "cmd_$c" "$@" ;;
+  *) sed -n '2,36p' "$ME" ;;
 esac
