@@ -803,6 +803,13 @@ intake_cycle() {
           mset "$p" state FAILED
           jlog "$(fio "$p") ($code): ПРОГОН УПАЛ (дважды). Данные оставлены на C:, разбор: ngs log $code; потом ngs resume $code"
         fi ;;
+      ARCHIVING)
+        # left by a PC restart in the middle of the copy to D: (nothing is archiving it now): start again,
+        # rsync continues where it stopped; otherwise the intake would wait for it forever
+        if ! pgrep -f "_autoarchive $code\$" >/dev/null && ! tmux has-session -t "arch_$code" 2>/dev/null; then
+          tmux new-session -d -s "arch_$code" "bash '$ME' _autoarchive '$code' >> '$QLOG' 2>&1"
+          jlog "$(fio "$p") ($code): перенос на D: был прерван (перезагрузка?), запустил его снова"
+        fi ;;
       ARCHIVE_FAILED) jlog_once "$(fio "$p") ($code): перенос на D: пока не удался, повторится сам (ngs archive $code)" ;;
     esac
   done < <(intake_dirs)
