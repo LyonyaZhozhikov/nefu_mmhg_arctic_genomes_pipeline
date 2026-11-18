@@ -18,8 +18,25 @@ if [ ! -f "$SETUP/params_template.yaml" ]; then
   echo "шаблон параметров: $SETUP/params_template.yaml (копия $GOOD_PARAMS)"
 fi
 
+# intake (автоприём из Очереди): settings once, autostart with Windows
+[ -f "$SETUP/conf/intake.conf" ] || { install -m 644 "$HERE/intake.conf" "$SETUP/conf/intake.conf"; echo "настройки автоприёма: $SETUP/conf/intake.conf"; }
+if mountpoint -q /mnt/d && [ -d /mnt/d/data_annotated ]; then
+  mkdir -p /mnt/d/data_annotated/Очередь /mnt/d/1_fastq_rec /mnt/d/2_fastq || true
+fi
+VBS=$HERE/ngs_intake_autostart.vbs; [ -f "$VBS" ] || VBS=$HERE/../windows/startup/ngs_intake_autostart.vbs
+if [ -f "$VBS" ] && command -v cmd.exe >/dev/null; then
+  APPD=$(cd /mnt/c && cmd.exe /c 'echo %APPDATA%' 2>/dev/null | tr -d '\r' || true)
+  STARTUP="$(wslpath -u "$APPD" 2>/dev/null || true)/Microsoft/Windows/Start Menu/Programs/Startup"
+  if [ -d "$STARTUP" ] && sed 's/$/\r/' "$VBS" > "$STARTUP/ngs_intake_autostart.vbs"; then
+    echo "автозапуск автоприёма: $STARTUP/ngs_intake_autostart.vbs"
+  else
+    echo "!! не смог положить автозапуск в Startup: скопируйте ngs_intake_autostart.vbs туда вручную (Win+R, shell:startup)"
+  fi
+fi
+
 grep -q "alias ngs=" ~/.bashrc || echo "alias ngs='bash $SETUP/scripts/ngs.sh'" >> ~/.bashrc
 mkdir -p /mnt/c/NGS_pipeline/new_samples /mnt/c/NGS_pipeline/new_results
 sed 's/$/\r/' "$HERE/NGS.bat" > /mnt/c/NGS_pipeline/NGS.bat
 echo "ярлык: C:\\NGS_pipeline\\NGS.bat"
 echo "Готово. Закройте и снова откройте окно Ubuntu, затем наберите: ngs"
+echo "Автоприём из Очереди: ngs intake sex (пол), ngs intake start (включить сейчас; дальше включается сам с Windows)"
