@@ -9,7 +9,8 @@ DST=/mnt/d/data_annotated/${2:?archive folder name}
 mkdir -p "$DST/raw" "$DST/processed/run_info"
 echo "start $(TZ=Asia/Yakutsk date '+%F %T')"
 rsync -rtL "$SRC_RAW/" "$DST/raw/" || echo "rsync raw exit $?"
-rsync -rtL "$RUN/results" "$DST/processed/" || echo "rsync results exit $?"
+# trimmed FASTQ (results/trimming/*.fastp.fastq.gz, ~87 GB) are not archived: the BAM and raw FASTQ cover them
+rsync -rtL --exclude='*.fastp.fastq*' "$RUN/results" "$DST/processed/" || echo "rsync results exit $?"
 for f in "$RUN"/*.log "$RUN"/timing*.txt "$RUN"/timing_summary.tsv "$RUN"/run_info.txt "$RUN"/params.yaml* \
          "$RUN"/samplesheet.csv "$RUN"/launch*.sh "$RUN"/local.config.at_launch; do
     [ -e "$f" ] && cp -p "$f" "$DST/processed/run_info/"
@@ -20,8 +21,8 @@ echo "copied $(TZ=Asia/Yakutsk date '+%F %T')"
 # verify: file count and total bytes of each tree (symlinks followed on the source side, as rsync -L did)
 cmp_tree() {
     local a b
-    a=$(find -L "$1" -type f -printf '%s\n' | awk '{n++; s+=$1} END {print n, s}')
-    b=$(find "$2" -type f -printf '%s\n' | awk '{n++; s+=$1} END {print n, s}')
+    a=$(find -L "$1" -type f ! -name '*.fastp.fastq*' -printf '%s\n' | awk '{n++; s+=$1} END {print n, s}')
+    b=$(find "$2" -type f ! -name '*.fastp.fastq*' -printf '%s\n' | awk '{n++; s+=$1} END {print n, s}')
     echo "$3 src: $a | dst: $b | $([ "$a" = "$b" ] && echo OK || echo MISMATCH)"
 }
 cmp_tree "$SRC_RAW" "$DST/raw" raw

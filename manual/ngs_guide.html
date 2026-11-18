@@ -238,7 +238,7 @@ ngs queue add SAMPLE07 U</pre><button class="copy" type="button">Копиров�
   <ul>
     <li>Ждёт, пока закончится любой уже идущий прогон (в том числе запущенный вручную), и проверяет место на <code>/data</code>.</li>
     <li>Запускает образец так же, как <code>ngs run</code>. Если он упал, один раз пробует продолжить (<code>resume</code>). Если снова неудача, оставляет его на C: для разбора (<code>ngs log КОД</code>) и переходит к следующему.</li>
-    <li>Готовый образец копирует на <code>D:\data_annotated\дата_КОД_пол\{raw,processed}</code> и сверяет md5 каждого файла на C: и на D:. Списки md5 сохраняются там же (<code>md5_raw.txt</code>, <code>md5_processed.txt</code>). Копирование идёт параллельно со счётом следующего образца, процессор оно почти не занимает.</li>
+    <li>Готовый образец копирует на <code>D:\data_annotated\дата_КОД_пол\{raw,processed}</code> и сверяет md5 каждого файла на C: и на D:. Списки md5 сохраняются там же (<code>md5_raw.txt</code>, <code>md5_processed.txt</code>). Обрезанные fastp риды (<code>trimming\*.fastp.fastq.gz</code>, ~87 ГБ на геном) на D: не копируются: они повторяют BAM и исходные FASTQ; отчёты fastp (html/json) сохраняются. Копирование идёт параллельно со счётом следующего образца, процессор оно почти не занимает.</li>
     <li>Только если все md5 совпали, удаляет данные образца с C:, как и при обычном запуске (раздел 05).</li>
   </ul>
   <div class="term"><pre>ngs queue</pre><button class="copy" type="button">Копировать</button></div>

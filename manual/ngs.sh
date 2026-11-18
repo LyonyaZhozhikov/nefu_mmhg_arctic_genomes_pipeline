@@ -32,7 +32,8 @@
 #   C:\NGS_pipeline\new_samples\CODE\      you put FASTQ here (any MGI/Illumina names, *_1/*_2 or *_R1/*_R2)
 #   /data/raredisease/samples/CODE/        fast copy inside WSL (deleted by archive)
 #   /data/raredisease/runs/CODE/           samplesheet, params, log, work/ (temporary, deleted by archive)
-#   D:\data_annotated\<date>_<CODE>_<SEX>\   raw\ (FASTQ) and processed\ (results), md5 lists
+#   D:\data_annotated\<date>_<CODE>_<SEX>\   raw\ (FASTQ) and processed\ (results without the trimmed
+#                                            FASTQ trimming\*.fastp.fastq.gz; fastp reports kept), md5 lists
 #   /data/raredisease/runs/queue.log       archive and queue journal
 set -euo pipefail
 
@@ -365,9 +366,17 @@ cmd__queue_loop() {
 
 # md5 of every file under $1, "hash  ./path" sorted; low priority so the running sample is not slowed
 # hidden files are skipped: an interrupted rsync can leave its temporary ".name.XXXXXX" on D:
+# $3 = notrim: also skip the fastp-trimmed FASTQ (see TRIMMED_FASTQ)
 md5list() {
-  (cd "$1" && find -L . -type f ! -name '.*' -print0 | nice -n 19 ionice -c3 xargs -0 -r -n 4 -P "$2" md5sum) | LC_ALL=C sort
+  local ex=(); [ "${3:-}" = notrim ] && ex=(! -name "$TRIMMED_FASTQ")
+  (cd "$1" && find -L . -type f ! -name '.*' "${ex[@]}" -print0 | nice -n 19 ionice -c3 xargs -0 -r -n 4 -P "$2" md5sum) | LC_ALL=C sort
 }
+
+# results/trimming/*.fastp.fastq.gz: the reads after fastp, ~87 GB per WGS. They are an intermediate of
+# bwa-mem2 (the BAM holds the same reads, and the original FASTQ are archived in raw\), so they are not
+# copied to D: and not listed in md5_processed.txt; the fastp reports (*.fastp.json/html/log) are kept.
+# raredisease 3.1.2 has no parameter to stop publishing them, so they are left out at archive time.
+TRIMMED_FASTQ='*.fastp.fastq*'
 
 # Archive: /data -> D:, md5 check of every file, then delete the C: copies (no question).
 cmd__autoarchive() {
@@ -409,7 +418,7 @@ cmd__autoarchive_core() {
   [ -d "$raw" ] && [ -d "$res" ] || { echo "нет $raw или $res"; return 1; }
   mountpoint -q /mnt/d || sudo -n mount -t drvfs D: /mnt/d || { echo "D: не подключён"; return 1; }
   dest=$ARCHIVE/${date}_${code}_${sex}
-  size=$(( $(du -s --block-size=1G "$raw" | cut -f1) + $(du -sL --block-size=1G "$res" | cut -f1) + 5 ))
+  size=$(( $(du -s --block-size=1G "$raw" | cut -f1) + $(du -sL --block-size=1G --exclude="$TRIMMED_FASTQ" "$res" | cut -f1) + 5 ))
   [ "$(gb /mnt/d)" -ge "$size" ] || { echo "на D: мало места: нужно ~$size ГБ"; return 1; }
   qlog "$code: копирую на D:\\data_annotated\\${date}_${code}_${sex} (~$size ГБ)"
   # a sample taken from the Очередь by ngs intake: its original FASTQ are already on D:, so move them
@@ -422,7 +431,8 @@ cmd__autoarchive_core() {
   mkdir -p "$dest/raw" "$dest/processed"
   local prog=(); [ -t 1 ] && prog=(--info=progress2)
   nice -n 19 rsync -rtL "${prog[@]}" "$raw"/ "$dest/raw"/
-  nice -n 19 rsync -rtL "${prog[@]}" "$res"/ "$dest/processed"/
+  nice -n 19 rsync -rtL "${prog[@]}" --exclude="$TRIMMED_FASTQ" "$res"/ "$dest/processed"/
+  find "$dest/processed" -type f -name "$TRIMMED_FASTQ" -delete   # left by an attempt made before this change
   for f in run.log params.yaml samplesheet.csv timing.txt run_info.txt; do
     if [ -f "$run/$f" ]; then cp "$run/$f" "$dest/processed/"; fi
   done
@@ -430,10 +440,10 @@ cmd__autoarchive_core() {
   qlog "$code: сверяю md5 (C: и D:)"
   md5list "$raw" 8 > "$run/md5_raw_C.txt"
   md5list "$dest/raw" 2 > "$run/md5_raw_D.txt"
-  { md5list "$res" 8
+  { md5list "$res" 8 notrim
     (cd "$run" && for f in run.log params.yaml samplesheet.csv timing.txt run_info.txt; do if [ -f "$f" ]; then md5sum "./$f"; fi; done)
   } | LC_ALL=C sort > "$run/md5_processed_C.txt"
-  md5list "$dest/processed" 2 > "$run/md5_processed_D.txt"
+  md5list "$dest/processed" 2 notrim > "$run/md5_processed_D.txt"
   [ -s "$run/md5_raw_C.txt" ] && [ -s "$run/md5_processed_C.txt" ] || { echo "пустой список файлов"; return 1; }
   cmp -s "$run/md5_raw_C.txt" "$run/md5_raw_D.txt" || { echo "raw: md5 НЕ совпадает"; return 1; }
   cmp -s "$run/md5_processed_C.txt" "$run/md5_processed_D.txt" || { echo "processed: md5 НЕ совпадает"; return 1; }
